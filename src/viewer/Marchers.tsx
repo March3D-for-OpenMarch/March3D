@@ -13,7 +13,7 @@ const LEG_LENGTH = 1.35;
 const UPPER_ARM_LENGTH = 0.72;
 const FOREARM_LENGTH = 0.68;
 // For development when changing marcher textures so each frame redraws every marcher. Disable for optimization
-const FORCE_MARCHER_REDRAW = false;
+const FORCE_MARCHER_REDRAW = true;
 // Keep the performer soles just above the painted field surface.
 const PERFORMER_GROUND_LIFT = 0.48;
 
@@ -211,7 +211,10 @@ function instrumentGeometry(kind: InstrumentKind, sectionName = "") {
           new THREE.ConeGeometry(0.18, 0.34, 14, 1, true),
           T(0, -0.66, 0),
         ),
-        transformed(new THREE.BoxGeometry(0.24, 0.22, 0.16), T(0, 0.17, 0)),
+        transformed(
+          new THREE.BoxGeometry(0.24, 0.22, 0.16), 
+          T(0, 0.17, 0)
+        ),
         transformed(
           new THREE.CylinderGeometry(0.02, 0.02, 0.25, 7),
           T(-0.072, 0.27, 0.055),
@@ -240,7 +243,10 @@ function instrumentGeometry(kind: InstrumentKind, sectionName = "") {
           new THREE.ConeGeometry(0.34, 0.43, 14, 1, true),
           T(0, -0.64, 0),
         ),
-        transformed(new THREE.BoxGeometry(0.31, 0.28, 0.21), T(0, 0.18, 0)),
+        transformed(
+          new THREE.BoxGeometry(0.31, 0.28, 0.21), 
+          T(0, 0.18, 0)
+        ),
         transformed(
           new THREE.CylinderGeometry(0.023, 0.023, 0.28, 7),
           T(-0.09, 0.3, 0.06),
@@ -264,25 +270,56 @@ function instrumentGeometry(kind: InstrumentKind, sectionName = "") {
       // position later. The offset parallel tubes make the slide readable.
       return mergeParts([
         transformed(
-          new THREE.CylinderGeometry(0.028, 0.028, 1.5, 8),
-          T(-0.09, -0.28, 0),
+          new THREE.CylinderGeometry(0.028, 0.028, 1.4, 8),
+          T(-0.3, -0.3, 0.1),
         ),
         transformed(
-          new THREE.CylinderGeometry(0.028, 0.028, 1.5, 8),
-          T(0.09, -0.28, 0),
-        ),
-        transformed(new THREE.BoxGeometry(0.23, 0.045, 0.045), T(0, -1.02, 0)),
-        transformed(
-          new THREE.CylinderGeometry(0.045, 0.055, 0.72, 8),
-          T(0, 0.38, 0),
+          new THREE.CylinderGeometry(0.028, 0.028, 1.4, 8),
+          T(-0.45, -0.3, 0.4),
         ),
         transformed(
-          new THREE.ConeGeometry(0.3, 0.42, 14, 1, true),
-          T(0, 0.94, 0),
+          new THREE.CylinderGeometry(0.065, 0.028, 0.72, 8),
+          T(-0.45, 0.07, 0.4),
         ),
         transformed(
-          new THREE.TorusGeometry(0.13, 0.024, 7, 14, Math.PI),
-          M(T(0, -1.04, 0), RZ(Math.PI / 2)),
+          new THREE.CylinderGeometry(0.028, 0.028, 1.4, 8),
+          T(-0.3, 0.9, 0.1),
+        ),
+        transformed(
+          new THREE.CylinderGeometry(0.028, 0.028, 2.1, 8),
+          T(0, 0.55, 0.25),
+        ),
+        transformed(
+          new THREE.CylinderGeometry(0.028, 0.028, 0.3, 8),
+          M(T(-0.15, 0.2, 0.175), RX(Math.PI / 2), RZ(Math.PI * 2 / 3)),
+        ),
+        transformed(
+          new THREE.CylinderGeometry(0.028, 0.028, 0.3, 8),
+          M(T(-0.15, -0.25, 0.175), RX(Math.PI / 2), RZ(Math.PI * 2 / 3)),
+        ),
+        transformed(
+          new THREE.CylinderGeometry(0.028, 0.028, 0.3, 8),
+          M(T(-0.375, -0.4, 0.25), RX(Math.PI / 2), RZ(Math.PI / 6)),
+        ),
+        transformed(
+          new THREE.CylinderGeometry(0.028, 0.028, 0.3, 8),
+          M(T(-0.375, -0.9, 0.25), RX(Math.PI / 2), RZ(Math.PI / 6)),
+        ),
+        transformed(
+          new THREE.ConeGeometry(0.24, 0.22, 14, 1, true),
+          M(T(-0.45, 0.48, 0.4), RX(Math.PI)),
+        ),
+        transformed(
+          new THREE.ConeGeometry(0.06, 0.1, 14, 1, true),
+          M(T(0, -0.5, 0.25)),
+        ),
+        transformed(
+          new THREE.TorusGeometry(0.17, 0.024, 7, 14, Math.PI),
+          M(T(-0.375, -1, 0.25), RY(1.11), RZ(Math.PI)),
+        ),
+        transformed(
+          new THREE.TorusGeometry(0.17, 0.024, 7, 14, Math.PI),
+          M(T(-0.15, 1.6, 0.175), RY(2.7)),
         ),
       ]);
     case "baritone":
@@ -712,7 +749,7 @@ export default function Marchers({
   const t6 = useMemo(() => new THREE.Matrix4(), []);
   const position = useMemo(() => new THREE.Vector3(), []);
   const quaternion = useMemo(() => new THREE.Quaternion(), []);
-  const scale = useMemo(() => new THREE.Vector3(1, 1, 1), []);
+  const scale = useMemo(() => new THREE.Vector3(1.55, 1.55, 1.55), []);
   const axisY = useMemo(() => new THREE.Vector3(0, 1, 0), []);
   const limbStart = useMemo(() => new THREE.Vector3(), []);
   const limbEnd = useMemo(() => new THREE.Vector3(), []);
@@ -1228,19 +1265,19 @@ export default function Marchers({
           case "baritone":
           case "trombone":
             if (left) {
-              ex = -0.58;
-              ey = 2.18;
-              ez = -0.2;
-              hx = -0.22;
-              hy = 2.48;
+              ex = -0.68;
+              ey = 2.48;
+              ez = -0.55;
+              hx = -0.15;
+              hy = 2.78;
               hz = -0.48;
             } else {
-              ex = 0.57;
-              ey = 2.22;
-              ez = -0.2;
-              hx = 0.2;
-              hy = 2.5;
-              hz = -0.46;
+              ex = 0.45;
+              ey = 2.28;
+              ez = -0.75;
+              hx = -0.15;
+              hy = 2.66;
+              hz = -0.96;
             }
             break;
           case "tuba":
