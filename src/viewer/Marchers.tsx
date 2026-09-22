@@ -204,32 +204,52 @@ function instrumentGeometry(kind: InstrumentKind, sectionName = "") {
       // into playing position later.
       return mergeParts([
         transformed(
-          new THREE.CylinderGeometry(0.03, 0.03, 0.76, 8),
-          T(0, -0.12, 0),
+          new THREE.CylinderGeometry(0.02, 0.02, 0.9, 8),
+          T(0, 0.05, -0.2),
         ),
         transformed(
-          new THREE.ConeGeometry(0.18, 0.34, 14, 1, true),
-          T(0, -0.66, 0),
+          new THREE.CylinderGeometry(0.02, 0.02, 0.7, 8),
+          T(-0.03, -0.05, -0.05),
         ),
         transformed(
-          new THREE.BoxGeometry(0.24, 0.22, 0.16), 
-          T(0, 0.17, 0)
+          new THREE.CylinderGeometry(0.02, 0.025, 0.8, 8),
+          T(-0.06, -0.1, -0.23),
         ),
         transformed(
-          new THREE.CylinderGeometry(0.02, 0.02, 0.25, 7),
-          T(-0.072, 0.27, 0.055),
+          new THREE.CylinderGeometry(0.02, 0.05, 0.14, 8),
+          T(-0.06, -0.55, -0.23),
         ),
         transformed(
-          new THREE.CylinderGeometry(0.02, 0.02, 0.25, 7),
-          T(0, 0.27, 0.055),
+          new THREE.CylinderGeometry(0.02, 0.02, 0.25, 8),
+          M(T(-0.02, 0, -0.15), RX(Math.PI / 2)),
         ),
         transformed(
-          new THREE.CylinderGeometry(0.02, 0.02, 0.25, 7),
-          T(0.072, 0.27, 0.055),
+          new THREE.CylinderGeometry(0.02, 0.02, 0.25, 8),
+          M(T(-0.02, 0.05, -0.15), RX(Math.PI / 2)),
         ),
         transformed(
-          new THREE.TorusGeometry(0.115, 0.018, 6, 12, Math.PI * 1.45),
-          M(T(0.02, 0.05, 0), RZ(Math.PI / 2)),
+          new THREE.CylinderGeometry(0.02, 0.02, 0.25, 8),
+          M(T(-0.02, -0.05, -0.15), RX(Math.PI / 2)),
+        ),
+        transformed(
+          new THREE.CylinderGeometry(0.015, 0.015, 0.14, 8),
+          M(T(-0.01, -0.32, -0.14), RX(Math.PI / 2), RZ(0.2)),
+        ),
+        transformed(
+          new THREE.ConeGeometry(0.15, 0.2, 14, 1, true),
+          T(-0.06, -0.65, -0.23),
+        ),
+        transformed(
+          new THREE.ConeGeometry(0.06, 0.1, 14, 1, true),
+          M(T(0, 0.46, -0.2), RZ(Math.PI)),
+        ),
+        transformed(
+          new THREE.TorusGeometry(0.076, 0.02, 6, 12, Math.PI),
+          M(T(-0.015, -0.4, -0.125), RY(1.4), RZ(Math.PI)),
+        ),
+        transformed(
+          new THREE.TorusGeometry(0.093, 0.02, 6, 12, Math.PI),
+          M(T(-0.045, 0.3, -0.14), RY(Math.PI - 1.4)),
         ),
       ]);
     case "mello":
@@ -258,6 +278,10 @@ function instrumentGeometry(kind: InstrumentKind, sectionName = "") {
         transformed(
           new THREE.CylinderGeometry(0.023, 0.023, 0.28, 7),
           T(0.09, 0.3, 0.06),
+        ),
+        transformed(
+          new THREE.ConeGeometry(0.06, 0.1, 14, 1, true),
+          M(T(0, 0.46, -0.2), RZ(Math.PI)),
         ),
         transformed(
           new THREE.TorusGeometry(0.16, 0.026, 6, 14, Math.PI * 1.55),
@@ -311,7 +335,7 @@ function instrumentGeometry(kind: InstrumentKind, sectionName = "") {
         ),
         transformed(
           new THREE.ConeGeometry(0.06, 0.1, 14, 1, true),
-          M(T(0, -0.5, 0.25)),
+          T(0, -0.5, 0.25),
         ),
         transformed(
           new THREE.TorusGeometry(0.17, 0.024, 7, 14, Math.PI),
@@ -334,7 +358,10 @@ function instrumentGeometry(kind: InstrumentKind, sectionName = "") {
           new THREE.ConeGeometry(0.4, 0.52, 14, 1, true),
           T(0, -0.76, 0),
         ),
-        transformed(new THREE.BoxGeometry(0.46, 0.4, 0.32), T(0, 0.16, 0)),
+        transformed(
+          new THREE.BoxGeometry(0.46, 0.4, 0.32), 
+          T(0, 0.16, 0)
+        ),
         transformed(
           new THREE.CylinderGeometry(0.032, 0.032, 0.34, 7),
           T(-0.12, 0.36, 0.08),
@@ -350,6 +377,10 @@ function instrumentGeometry(kind: InstrumentKind, sectionName = "") {
         transformed(
           new THREE.TorusGeometry(0.22, 0.043, 7, 15, Math.PI * 1.6),
           M(T(0.04, -0.01, 0), RZ(Math.PI / 2)),
+        ),
+        transformed(
+          new THREE.ConeGeometry(0.06, 0.1, 14, 1, true),
+          M(T(0, 0.36, -0.32), RZ(Math.PI)),
         ),
         transformed(
           new THREE.TorusGeometry(0.17, 0.036, 7, 14, Math.PI * 1.5),
@@ -1230,19 +1261,19 @@ export default function Marchers({
             break;
           case "trumpet":
             if (left) {
-              ex = -0.5;
-              ey = 2.3;
-              ez = -0.3;
-              hx = -0.16;
-              hy = 2.61;
-              hz = -0.66;
+              ex = -0.49;
+              ey = 2.4;
+              ez = -0.58;
+              hx = -0.13;
+              hy = 2.71;
+              hz = -0.76;
             } else {
               ex = 0.49;
-              ey = 2.3;
-              ez = -0.28;
-              hx = 0.14;
-              hy = 2.61;
-              hz = -0.64;
+              ey = 2.4;
+              ez = -0.58;
+              hx = 0.09;
+              hy = 2.84;
+              hz = -0.76;
             }
             break;
           case "mello":
@@ -1263,6 +1294,20 @@ export default function Marchers({
             }
             break;
           case "baritone":
+            if (left) {
+              ex = -0.58;
+              ey = 2.18;
+              ez = -0.2;
+              hx = -0.22;
+              hy = 2.48;
+            } else {
+              ex = 0.45;
+              ey = 2.28;
+              ez = -0.75;
+              hx = -0.15;
+              hy = 2.66;
+              hz = -0.96;
+            }
           case "trombone":
             if (left) {
               ex = -0.68;
