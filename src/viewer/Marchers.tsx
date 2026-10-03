@@ -13,7 +13,7 @@ const LEG_LENGTH = 1.35;
 const UPPER_ARM_LENGTH = 0.72;
 const FOREARM_LENGTH = 0.68;
 // For development when changing marcher textures so each frame redraws every marcher. Disable for optimization
-const FORCE_MARCHER_REDRAW = true;
+const FORCE_MARCHER_REDRAW = false;
 // Keep the performer soles just above the painted field surface.
 const PERFORMER_GROUND_LIFT = 0.48;
 
@@ -256,36 +256,64 @@ function instrumentGeometry(kind: InstrumentKind, sectionName = "") {
       // Mellophone: trumpet-like body with a noticeably larger, wider bell.
       return mergeParts([
         transformed(
-          new THREE.CylinderGeometry(0.04, 0.045, 0.7, 8),
-          T(0, -0.08, 0),
+          new THREE.CylinderGeometry(0.02, 0.02, 0.55, 8),
+          T(0, 0.18, -0.2),
         ),
         transformed(
-          new THREE.ConeGeometry(0.34, 0.43, 14, 1, true),
-          T(0, -0.64, 0),
+          new THREE.CylinderGeometry(0.03, 0.02, 0.55, 8),
+          T(-0.02, -0.075, 0.08),
         ),
         transformed(
-          new THREE.BoxGeometry(0.31, 0.28, 0.21), 
-          T(0, 0.18, 0)
+          new THREE.CylinderGeometry(0.03, 0.03, 0.75, 8),
+          T(-0.06, -0.175, -0.23),
         ),
         transformed(
-          new THREE.CylinderGeometry(0.023, 0.023, 0.28, 7),
-          T(-0.09, 0.3, 0.06),
+          new THREE.CylinderGeometry(0.03, 0.102, 0.54, 8),
+          T(-0.06, -0.3, -0.23),
         ),
         transformed(
-          new THREE.CylinderGeometry(0.023, 0.023, 0.28, 7),
-          T(0, 0.3, 0.06),
+          new THREE.CylinderGeometry(0.02, 0.02, 0.35, 8),
+          T(0, 0.08, -0.04),
         ),
         transformed(
-          new THREE.CylinderGeometry(0.023, 0.023, 0.28, 7),
-          T(0.09, 0.3, 0.06),
+          new THREE.CylinderGeometry(0.02, 0.02, 0.6, 8),
+          T(-0.02, -0.05, -0.14),
+        ),
+        transformed(
+          new THREE.CylinderGeometry(0.02, 0.02, 0.22, 8),
+          M(T(-0.02, 0, -0.18), RX(Math.PI / 2)),
+        ),
+        transformed(
+          new THREE.CylinderGeometry(0.02, 0.02, 0.22, 8),
+          M(T(-0.02, 0.05, -0.18), RX(Math.PI / 2)),
+        ),
+        transformed(
+          new THREE.CylinderGeometry(0.02, 0.02, 0.22, 8),
+          M(T(-0.02, -0.05, -0.18), RX(Math.PI / 2)),
+        ),
+        transformed(
+          new THREE.ConeGeometry(0.28, 0.2, 14, 1, true),
+          T(-0.06, -0.6, -0.23),
         ),
         transformed(
           new THREE.ConeGeometry(0.06, 0.1, 14, 1, true),
           M(T(0, 0.46, -0.2), RZ(Math.PI)),
         ),
         transformed(
-          new THREE.TorusGeometry(0.16, 0.026, 6, 14, Math.PI * 1.55),
-          M(T(0.03, 0.0, 0), RZ(Math.PI / 2)),
+          new THREE.TorusGeometry(0.08, 0.02, 6, 12, Math.PI),
+          M(T(0, -0.09, -0.12), RY(Math.PI / 2), RZ(Math.PI)),
+        ),
+        transformed(
+          new THREE.TorusGeometry(0.05, 0.02, 6, 12, Math.PI),
+          M(T(-0.01, 0.25, -0.09), RY(Math.PI / 2 + 0.36)),
+        ),
+        transformed(
+          new THREE.TorusGeometry(0.11, 0.02, 6, 12, Math.PI),
+          M(T(-0.02, -0.35, -0.03), RY(Math.PI / 2), RZ(Math.PI)),
+        ),
+        transformed(
+          new THREE.TorusGeometry(0.155, 0.03, 6, 12, Math.PI),
+          M(T(-0.04, 0.2, -0.075), RY(Math.PI - 1.4)),
         ),
       ]);
     case "trombone":
@@ -351,40 +379,64 @@ function instrumentGeometry(kind: InstrumentKind, sectionName = "") {
       // held bell-front, with larger tubing and bell than a mellophone.
       return mergeParts([
         transformed(
-          new THREE.CylinderGeometry(0.07, 0.08, 0.82, 9),
-          T(0, -0.1, 0),
+          new THREE.CylinderGeometry(0.02, 0.02, 0.75, 8),
+          T(0, 0.08, -0.2),
         ),
         transformed(
-          new THREE.ConeGeometry(0.4, 0.52, 14, 1, true),
-          T(0, -0.76, 0),
+          new THREE.CylinderGeometry(0.045, 0.03, 0.55, 8),
+          T(-0.02, -0.105, 0.14),
         ),
         transformed(
-          new THREE.BoxGeometry(0.46, 0.4, 0.32), 
-          T(0, 0.16, 0)
+          new THREE.CylinderGeometry(0.045, 0.045, 0.75, 8),
+          T(-0.09, -0.205, -0.23),
         ),
         transformed(
-          new THREE.CylinderGeometry(0.032, 0.032, 0.34, 7),
-          T(-0.12, 0.36, 0.08),
+          new THREE.CylinderGeometry(0.045, 0.12, 0.6, 8),
+          T(-0.09, -0.345, -0.23),
         ),
         transformed(
-          new THREE.CylinderGeometry(0.032, 0.032, 0.34, 7),
-          T(0, 0.36, 0.08),
+          new THREE.CylinderGeometry(0.02, 0.02, 0.5, 8),
+          T(0, -0.04, 0.04),
         ),
         transformed(
-          new THREE.CylinderGeometry(0.032, 0.032, 0.34, 7),
-          T(0.12, 0.36, 0.08),
+          new THREE.CylinderGeometry(0.02, 0.02, 0.6, 8),
+          T(-0.02, -0.08, -0.12),
         ),
         transformed(
-          new THREE.TorusGeometry(0.22, 0.043, 7, 15, Math.PI * 1.6),
-          M(T(0.04, -0.01, 0), RZ(Math.PI / 2)),
+          new THREE.CylinderGeometry(0.02, 0.02, 0.22, 8),
+          M(T(-0.02, -0.03, -0.18), RX(Math.PI / 2)),
+        ),
+        transformed(
+          new THREE.CylinderGeometry(0.02, 0.02, 0.22, 8),
+          M(T(-0.02, 0.02, -0.18), RX(Math.PI / 2)),
+        ),
+        transformed(
+          new THREE.CylinderGeometry(0.02, 0.02, 0.22, 8),
+          M(T(-0.02, -0.08, -0.18), RX(Math.PI / 2)),
+        ),
+        transformed(
+          new THREE.ConeGeometry(0.28, 0.4, 20, 1, true),
+          T(-0.09, -0.68, -0.23),
         ),
         transformed(
           new THREE.ConeGeometry(0.06, 0.1, 14, 1, true),
-          M(T(0, 0.36, -0.32), RZ(Math.PI)),
+          M(T(0, 0.46, -0.2), RZ(Math.PI)),
         ),
         transformed(
-          new THREE.TorusGeometry(0.17, 0.036, 7, 14, Math.PI * 1.5),
-          M(T(-0.08, 0.13, 0.05), RZ(Math.PI / 2)),
+          new THREE.TorusGeometry(0.12, 0.02, 6, 12, Math.PI),
+          M(T(0, -0.29, -0.08), RY(Math.PI / 2), RZ(Math.PI)),
+        ),
+        transformed(
+          new THREE.TorusGeometry(0.08, 0.02, 6, 12, Math.PI),
+          M(T(-0.01, 0.2, -0.042), RY(Math.PI / 2 + 0.36)),
+        ),
+        transformed(
+          new THREE.TorusGeometry(0.13, 0.03, 6, 12, Math.PI),
+          M(T(-0.02, -0.38, 0.01), RY(Math.PI / 2), RZ(Math.PI)),
+        ),
+        transformed(
+          new THREE.TorusGeometry(0.188, 0.045, 6, 12, Math.PI),
+          M(T(-0.054, 0.17, -0.047), RY(Math.PI - 1.4)),
         ),
       ]);
     case "tuba": {
@@ -1278,36 +1330,38 @@ export default function Marchers({
             break;
           case "mello":
             if (left) {
-              ex = -0.53;
-              ey = 2.27;
-              ez = -0.29;
-              hx = -0.18;
-              hy = 2.57;
-              hz = -0.62;
+              ex = -0.52;
+              ey = 2.28;
+              ez = -0.57;
+              hx = -0.14;
+              hy = 2.72;
+              hz = -0.72;
             } else {
               ex = 0.52;
               ey = 2.28;
-              ez = -0.27;
-              hx = 0.16;
-              hy = 2.57;
-              hz = -0.6;
+              ez = -0.57;
+              hx = 0.1;
+              hy = 2.77;
+              hz = -0.75;
             }
             break;
           case "baritone":
             if (left) {
-              ex = -0.58;
-              ey = 2.18;
-              ez = -0.2;
-              hx = -0.22;
-              hy = 2.48;
-            } else {
-              ex = 0.45;
+              ex = -0.52;
               ey = 2.28;
-              ez = -0.75;
-              hx = -0.15;
-              hy = 2.66;
-              hz = -0.96;
+              ez = -0.57;
+              hx = -0.12;
+              hy = 2.68;
+              hz = -0.78;
+            } else {
+              ex = 0.52;
+              ey = 2.28;
+              ez = -0.57;
+              hx = 0.1;
+              hy = 2.74;
+              hz = -0.75;
             }
+            break;
           case "trombone":
             if (left) {
               ex = -0.68;
@@ -1549,7 +1603,7 @@ export default function Marchers({
           t2.makeRotationX(Math.PI / 2);
           multiplyParts(result, root, t1, t2);
         } else if (instrument === "baritone") {
-          t1.makeTranslation(0, 2.5, -0.62);
+          t1.makeTranslation(0, 2.62, -0.74);
           t2.makeRotationX(Math.PI / 2);
           multiplyParts(result, root, t1, t2);
         } else if (instrument === "trombone") {
@@ -1782,7 +1836,7 @@ export default function Marchers({
       >
         <primitive attach="geometry" object={trumpetGeometry} />
         <meshStandardMaterial
-          color="#d7bd72"
+          color="#ffd453"
           metalness={0.72}
           roughness={0.3}
           side={THREE.DoubleSide}
@@ -1796,9 +1850,9 @@ export default function Marchers({
       >
         <primitive attach="geometry" object={melloGeometry} />
         <meshStandardMaterial
-          color="#d7bd72"
+          color="#fcd663"
           metalness={0.72}
-          roughness={0.3}
+          roughness={0.4}
           side={THREE.DoubleSide}
         />
       </instancedMesh>
@@ -1810,7 +1864,7 @@ export default function Marchers({
       >
         <primitive attach="geometry" object={baritoneGeometry} />
         <meshStandardMaterial
-          color="#d7bd72"
+          color="#fcd663"
           metalness={0.72}
           roughness={0.3}
           side={THREE.DoubleSide}
@@ -1824,7 +1878,7 @@ export default function Marchers({
       >
         <primitive attach="geometry" object={tromboneGeometry} />
         <meshStandardMaterial
-          color="#d7bd72"
+          color="#e6c86f"
           metalness={0.72}
           roughness={0.3}
           side={THREE.DoubleSide}
