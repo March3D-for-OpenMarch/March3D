@@ -1,24 +1,28 @@
 // Name: March3D Sync
 // Description: Syncs OpenMarch playback to the local March3D viewer.
-// Version: 0.3.33
+// Version: 0.3.34
 // Author: March3D
 //
-// OpenMarch's AudioPlayer starts both its music and metronome AudioBufferSourceNodes
-// at the same AudioContext time and offset. We treat the first source as the
-// transport clock and reconstruct OpenMarch's own live playback position from
-// that Web Audio clock. This avoids using elapsed wall-clock time, which can drift
-// or run ahead during scheduled starts.
+// This plugin is intentionally passive: it does NOT patch OpenMarch's
+// AudioContext or AudioBufferSourceNode prototypes. It reads OpenMarch's
+// visible playback clock and sends that position to March3D over localhost.
 
 async function March3DSync() {
   let socket = null;
   let reconnectTimer = null;
+  let pollTimer = null;
   let playing = false;
-  let patched = false;
-  let positionTimer = null;
-  let playback = null;
-  let primarySource = null;
-  const sourceContexts = new WeakMap();
+  let lastPosition = null;
+  let lastPositionAt = 0;
   let lastDrillCandidate = null;
+
+  function send(message) {
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      try {
+        socket.send(JSON.stringify(message));
+      } catch {}
+    }
+  }
 
   function extractDotsStrings(value) {
     if (typeof value !== "string") return [];
@@ -48,11 +52,8 @@ async function March3DSync() {
     add(document.title || "", 40);
     add(location.href || "", 10);
 
-    // OpenMarch 0.1.x renders the current project path in its top toolbar, but
-    // that path is not necessarily copied into document.title/localStorage.
-    // Walk text nodes only (not innerHTML/React state) so we can pick up that
-    // visible `C:\\...\\show.dots` label without serializing the drill UI.
-    // The walk is capped to keep this cheap even for very large bands.
+    // OpenMarch displays the active .dots path in its toolbar in current
+    // desktop builds. Read visible text only; never serialize the React app.
     try {
       const root = document.body;
       if (root) {
@@ -62,7 +63,6 @@ async function March3DSync() {
         while ((node = walker.nextNode()) && visited++ < 2500) {
           const text = node.nodeValue?.trim();
           if (!text || !/\.dots/i.test(text)) continue;
-          // Visible toolbar text is stronger evidence than recent-file storage.
           add(text, 90);
         }
       }
@@ -83,9 +83,6 @@ async function March3DSync() {
       } catch {}
     }
 
-    // Local/session storage is enough to catch OpenMarch recent/current-file state
-    // without walking large application stores every polling interval.
-
     candidates.sort(
       (a, b) => b.weight - a.weight || b.path.length - a.path.length,
     );
@@ -104,15 +101,88 @@ async function March3DSync() {
     });
   }
 
+  function parseClockText(value) {
+    if (typeof value !== "string") return null;
+    const match = value.trim().match(/^(\d{1,3}):(\d{2})(?:\.(\d{1,3}))?$/);
+    if (!match) return null;
+    const minutes = Number(match[1]);
+    const seconds = Number(match[2]);
+    const millis = Number((match[3] || "0").padEnd(3, "0"));
+    if (!Number.isFinite(minutes) || seconds > 59 || !Number.isFinite(millis)) {
+      return null;
+    }
+    return minutes * 60 + seconds + millis / 1000;
+  }
+
+  function findOpenMarchClock() {
+    try {
+      // OpenMarch's AudioClock currently renders its live value in a
+      // `font-mono text-xs` span. Prefer that exact presentation before
+      // falling back to visible text-node scanning for compatibility.
+      const preferred = document.querySelectorAll(
+        "span.font-mono.text-xs, span.font-mono",
+      );
+      for (const element of preferred) {
+        const value = parseClockText(element.textContent || "");
+        if (value == null) continue;
+        const rect = element.getBoundingClientRect();
+        if (rect.width > 0 && rect.height > 0) return value;
+      }
+
+      const root = document.body;
+      if (!root) return null;
+      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+      let node;
+      let visited = 0;
+      while ((node = walker.nextNode()) && visited++ < 3000) {
+        const text = node.nodeValue?.trim();
+        const value = parseClockText(text || "");
+        if (value == null) continue;
+        const element = node.parentElement;
+        if (!element) continue;
+        const rect = element.getBoundingClientRect();
+        if (rect.width === 0 || rect.height === 0) continue;
+        return value;
+      }
+    } catch {}
+    return null;
+  }
+
+  function pollPlayback() {
+    const position = findOpenMarchClock();
+    if (position == null) return;
+
+    const now = performance.now();
+    const previous = lastPosition;
+    const previousAt = lastPositionAt;
+    const elapsed = previousAt > 0 ? (now - previousAt) / 1000 : 0;
+    const delta = previous == null ? 0 : position - previous;
+
+    // OpenMarch's clock increases while playing and stays fixed while paused.
+    // Allow small DOM timing jitter, but reject impossible jumps.
+    const advancing =
+      previous != null &&
+      elapsed > 0 &&
+      delta > 0.001 &&
+      delta < Math.max(0.5, elapsed * 4);
+
+    if (advancing !== playing) {
+      playing = advancing;
+      send({ type: "playback", playing });
+    }
+
+    lastPosition = position;
+    lastPositionAt = now;
+    send({ type: "position", position });
+  }
+
   function connect() {
     try {
       socket = new WebSocket("ws://127.0.0.1:27831");
       socket.onopen = () => {
-        // Electron already emits the connection state when the WebSocket
-        // handshake completes; avoid a duplicate renderer reset here.
-        send({ type: "playback", playing });
+        send({ type: "playback", playing: false });
         sendActiveDrill(true);
-        if (playing && playback) sendPosition();
+        pollPlayback();
       };
       socket.onclose = () => {
         socket = null;
@@ -126,134 +196,23 @@ async function March3DSync() {
     }
   }
 
-  function send(message) {
-    if (socket && socket.readyState === WebSocket.OPEN) {
-      socket.send(JSON.stringify(message));
-    }
-  }
-
-  // This mirrors OpenMarch's getLivePlaybackPosition():
-  // startTimestamp + pageDuration + (currentTime - playStartTime)
-  // + PLAYBACK_DELAY + 0.01.
-  // The AudioBufferSourceNode's offset is startTimestamp + pageDuration.
-  function currentPosition() {
-    if (!playback) return 0;
-    const elapsed = Math.max(
-      0,
-      playback.context.currentTime - playback.startAt,
-    );
-    return playback.offset + elapsed + 0.11;
-  }
-
-  function sendPosition() {
-    if (!playback) return;
-    // This is OpenMarch's own live drill/playback position. March3D must use
-    // it directly and must NOT apply workspace audioOffsetSeconds a second time.
-    send({ type: "position", position: currentPosition() });
-  }
-
-  function startPositionTimer() {
-    if (positionTimer) return;
-    // March3D extrapolates smoothly between clock samples, so 10 Hz is plenty
-    // for sync accuracy; 8 Hz keeps OpenMarch overhead negligible on large shows.
-    positionTimer = setInterval(sendPosition, 125);
-  }
-
-  function stopPositionTimer() {
-    if (!positionTimer) return;
-    clearInterval(positionTimer);
-    positionTimer = null;
-  }
-
-  function setPlaying(next) {
-    if (playing === next) return;
-    playing = next;
-    send({ type: "playback", playing });
-    if (!next) {
-      sendPosition();
-      playback = null;
-      primarySource = null;
-      stopPositionTimer();
-    }
-  }
-
-  function sourceStarted(source, when, offset) {
-    // OpenMarch creates music first and metronome second. Both have the same
-    // transport start time/offset, so only the first source should establish
-    // the clock. Ignoring later sources prevents duplicate clocks and jumps.
-    if (primarySource) return;
-
-    const context = sourceContexts.get(source);
-    if (!context) return;
-
-    const startAt =
-      Number.isFinite(when) && when > context.currentTime
-        ? when
-        : context.currentTime;
-    const startOffset = Number.isFinite(offset) ? Math.max(0, offset) : 0;
-
-    primarySource = source;
-    playback = { context, startAt, offset: startOffset };
-    send({ type: "position", position: startOffset });
-    setPlaying(true);
-    startPositionTimer();
-  }
-
-  function sourceStopped(source) {
-    if (source !== primarySource) return;
-    primarySource = null;
-    setPlaying(false);
-  }
-
-  function patchWebAudio() {
-    if (patched) return true;
-    if (!window.AudioContext || !window.AudioBufferSourceNode) return false;
-
-    const originalCreateBufferSource =
-      AudioContext.prototype.createBufferSource;
-    const originalStart = AudioBufferSourceNode.prototype.start;
-    const originalStop = AudioBufferSourceNode.prototype.stop;
-
-    AudioContext.prototype.createBufferSource = function (...args) {
-      const source = originalCreateBufferSource.apply(this, args);
-      sourceContexts.set(source, this);
-      source.addEventListener("ended", () => sourceStopped(source), {
-        once: true,
-      });
-      return source;
-    };
-
-    AudioBufferSourceNode.prototype.start = function (...args) {
-      const when = args[0] === undefined ? 0 : Number(args[0]);
-      const offset = args[1] === undefined ? 0 : Number(args[1]);
-      const result = originalStart.apply(this, args);
-      sourceStarted(this, when, offset);
-      return result;
-    };
-
-    AudioBufferSourceNode.prototype.stop = function (...args) {
-      sourceStopped(this);
-      return originalStop.apply(this, args);
-    };
-
-    patched = true;
-    console.log("March3D Sync: exact OpenMarch Web Audio clock installed");
-    return true;
-  }
-
-  if (!patchWebAudio()) {
-    const timer = setInterval(() => {
-      if (patchWebAudio()) clearInterval(timer);
-    }, 250);
-    setTimeout(() => clearInterval(timer), 10000);
-  }
-
-  // File changes are rare. A 2.5 second probe still notices show switches quickly
-  // while reducing DOM scanning work in very large OpenMarch projects.
+  // 20 Hz gives March3D plenty of authoritative samples while avoiding a
+  // requestAnimationFrame hook inside OpenMarch.
+  pollTimer = setInterval(pollPlayback, 50);
   const drillFileTimer = setInterval(() => sendActiveDrill(false), 2500);
-  window.addEventListener("beforeunload", () => clearInterval(drillFileTimer), {
-    once: true,
-  });
+
+  window.addEventListener(
+    "beforeunload",
+    () => {
+      clearInterval(pollTimer);
+      clearInterval(drillFileTimer);
+      clearTimeout(reconnectTimer);
+      try {
+        socket?.close();
+      } catch {}
+    },
+    { once: true },
+  );
 
   connect();
 }

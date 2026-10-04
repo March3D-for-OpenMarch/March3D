@@ -11,7 +11,7 @@ const END_ZONE = 30;
 const YARD = 3;
 const SURFACE_Y = 0;
 const PAINT_Y = 0.004;
-const PURPLE = "#5f3dff";
+const BLUE = "#0f5787";
 
 function hashRowsForDrill(drill: Drill) {
   const feetPerStep = (drill.field.stepSizeInches || 22.5) / 12;
@@ -202,14 +202,14 @@ export default function Field({ drill }: { drill: Drill }) {
         receiveShadow
       >
         <boxGeometry args={[END_ZONE, 0.3, FIELD_WIDTH]} />
-        <meshStandardMaterial color={PURPLE} roughness={0.9} />
+        <meshStandardMaterial color={BLUE} roughness={0.9} />
       </mesh>
       <mesh
         position={[halfLength - END_ZONE / 2, SURFACE_Y - 0.15, 0]}
         receiveShadow
       >
         <boxGeometry args={[END_ZONE, 0.3, FIELD_WIDTH]} />
-        <meshStandardMaterial color={PURPLE} roughness={0.9} />
+        <meshStandardMaterial color={BLUE} roughness={0.9} />
       </mesh>
 
       <mesh geometry={lineGeometry} renderOrder={1}>

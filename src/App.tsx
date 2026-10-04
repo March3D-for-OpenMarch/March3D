@@ -10,7 +10,6 @@ import Scene from "./viewer/Scene";
 import { parseDots, type Drill } from "./lib/dots";
 import logoUrl from "./assets/March3D-clear.png";
 import * as THREE from "three";
-import packageJson from "../package.json";
 
 function audioMime(path: string) {
   const ext = path.toLowerCase().split(".").pop();
@@ -171,14 +170,156 @@ function PlaybackBanner({
   );
 }
 
+function OpenMarchSyncRibbon({
+  connected,
+  playing,
+  drillName,
+}: {
+  connected: boolean;
+  playing: boolean;
+  drillName: string | null;
+}) {
+  return (
+    <div
+      className={`sync-ribbon${connected ? " connected" : ""}`}
+      role="status"
+      aria-live="polite"
+      aria-label="OpenMarch synchronization status"
+    >
+      <div className="sync-ribbon-brand">
+        <span className={`sync-ribbon-dot${connected ? " online" : ""}`} />
+        <strong>OpenMarch Sync</strong>
+      </div>
+      <div className="sync-ribbon-status">
+        {connected
+          ? playing
+            ? "Live playback"
+            : "Connected · paused"
+          : "Waiting for OpenMarch"}
+      </div>
+      {connected && drillName && (
+        <div className="sync-ribbon-drill" title={drillName}>
+          {drillName}
+        </div>
+      )}
+      {!connected && (
+        <div className="sync-ribbon-help">
+          Install/run the March3D Sync .om.js plugin in OpenMarch
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PlaybackRibbon({
+  duration,
+  playhead,
+  playing,
+  syncActive,
+  canPlay,
+  onToggle,
+  onPrevious,
+  onNext,
+  onSeek,
+  canPrevious,
+  canNext,
+}: {
+  duration: number;
+  playhead: number;
+  playing: boolean;
+  syncActive: boolean;
+  canPlay: boolean;
+  onToggle: () => void;
+  onPrevious: () => void;
+  onNext: () => void;
+  onSeek: (time: number) => void;
+  canPrevious: boolean;
+  canNext: boolean;
+}) {
+  return (
+    <div className="playback-ribbon" aria-label="Playback controls">
+      <button
+        type="button"
+        className="ribbon-button"
+        title="Previous set"
+        aria-label="Previous set"
+        onClick={onPrevious}
+        disabled={!canPrevious}
+      >
+        <span className="ribbon-skip-icon previous" />
+      </button>
+
+      <button
+        type="button"
+        className="ribbon-play"
+        title={
+          syncActive
+            ? "Playback controlled by OpenMarch"
+            : playing
+              ? "Pause"
+              : "Play"
+        }
+        aria-label={
+          syncActive
+            ? "Playback controlled by OpenMarch"
+            : playing
+              ? "Pause"
+              : "Play"
+        }
+        onClick={onToggle}
+        disabled={!canPlay || syncActive}
+      >
+        {syncActive ? "OM" : playing ? "❚❚" : "▶"}
+      </button>
+
+      <button
+        type="button"
+        className="ribbon-button"
+        title="Next set"
+        aria-label="Next set"
+        onClick={onNext}
+        disabled={!canNext}
+      >
+        <span className="ribbon-skip-icon next" />
+      </button>
+
+      <div className="ribbon-time" aria-label="Playback time">
+        {formatClock(playhead)}
+      </div>
+
+      <input
+        className="ribbon-range"
+        type="range"
+        min="0"
+        max={Math.max(0, duration)}
+        step="0.01"
+        value={Math.min(playhead, duration || 0)}
+        aria-label="Playback position"
+        onChange={(event) => onSeek(Number(event.target.value))}
+        disabled={!duration}
+      />
+
+      <div className="ribbon-time ribbon-duration">{formatClock(duration)}</div>
+    </div>
+  );
+}
+
 export default function App() {
   const [drill, setDrill] = useState<Drill | null>(null);
+  const [openMenu, setOpenMenu] = useState<string | null>(null);
+  const menuRef = useRef<HTMLElement | null>(null);
+  const [developerMode, setDeveloperMode] = useState(
+    () => localStorage.getItem("march3d-developer-mode") === "true",
+  );
+  const [showDrillInfo, setShowDrillInfo] = useState(false);
   const [pageIndex, setPageIndex] = useState(0);
   const [labels, setLabels] = useState(true);
   const [playing, setPlaying] = useState(false);
   const [playhead, setPlayhead] = useState(0);
+  const [isMaximized, setIsMaximized] = useState(false);
   const [error, setError] = useState("");
   const [syncConnected, setSyncConnected] = useState(false);
+  const [syncEnabled, setSyncEnabled] = useState(false);
   const [externalAudio, setExternalAudio] = useState<{
     name: string;
     url: string;
@@ -187,6 +328,10 @@ export default function App() {
   const [loadVersion, setLoadVersion] = useState(0);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const syncConnectedRef = useRef(false);
+  const syncEnabledRef = useRef(false);
+  const lastOmPositionRef = useRef(0);
+  const lastOmPlayingRef = useRef(false);
+  const lastOmDrillPathRef = useRef<string | null>(null);
   const playingRef = useRef(false);
   const playheadRef = useRef(0);
   const syncAnchorRef = useRef({ position: 0, receivedAt: performance.now() });
@@ -195,6 +340,8 @@ export default function App() {
     startedAt: performance.now(),
   });
   const standaloneAudioStartedRef = useRef(false);
+  const standaloneAudioLoadingRef = useRef(false);
+  const pendingStandalonePlayRef = useRef(false);
   const pendingDotsRef = useRef<{ path: string; changedAt: number } | null>(
     null,
   );
@@ -205,6 +352,46 @@ export default function App() {
   // clock instead of replacing it every time a clock sample arrives.  That
   // removes the tiny corrections that showed up as occasional marcher jumps.
   const clockFrameRef = useRef(performance.now());
+
+  function handleDeveloperContextMenu(event: React.MouseEvent) {
+    if (!developerMode) return;
+
+    event.preventDefault();
+    window.march3d?.inspectElement(event.clientX, event.clientY);
+  }
+
+  // Keep the custom title-bar maximize/restore icon in sync with the real
+  // Electron window state, including when the window is maximized externally.
+  useEffect(() => {
+    if (!window.march3d?.isElectron) return;
+
+    let active = true;
+    void window.march3d.isMaximized().then((maximized) => {
+      if (active) setIsMaximized(maximized);
+    });
+
+    return window.march3d.onWindowMaximized((maximized) => {
+      setIsMaximized(maximized);
+    });
+  }, []);
+
+  // Close the custom menu when the user clicks elsewhere or presses Escape.
+  useEffect(() => {
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!menuRef.current?.contains(event.target as Node)) {
+        setOpenMenu(null);
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpenMenu(null);
+    };
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, []);
 
   // OpenMarch's page start beat marks the beginning of the move INTO that
   // page/set, not the instant its dots should already be fully reached.
@@ -235,20 +422,10 @@ export default function App() {
     const arrivals = new Array(movementStarts.length).fill(0);
     arrivals[0] = 0;
 
-    // March3D's playback clock starts at the first playable movement, while
-    // OpenMarch files may contain one or more setup/sentinel beats before it.
-    // Normalize every page boundary to that first movement start. Without this
-    // normalization the opening Set 0 -> 1 move can visually reach its final
-    // count, then wait for the pre-roll offset before advancing.
-    const playbackOrigin = movementStarts[1] ?? 0;
-
     // The move from Set i-1 to Set i occupies the interval that starts on
     // page i and ends when page i+1 begins.
     for (let i = 1; i < movementStarts.length - 1; i++) {
-      arrivals[i] = Math.max(
-        arrivals[i - 1],
-        movementStarts[i + 1] - playbackOrigin,
-      );
+      arrivals[i] = Math.max(arrivals[i - 1], movementStarts[i + 1]);
     }
 
     // The final written page has no following page boundary, so OpenMarch
@@ -284,7 +461,7 @@ export default function App() {
 
     arrivals[last] = Math.max(
       arrivals[last - 1],
-      lastStart - playbackOrigin + finalMoveDuration,
+      lastStart + finalMoveDuration,
     );
 
     return arrivals;
@@ -404,12 +581,12 @@ export default function App() {
       // While OpenMarch is synced, "Open .dots" means "open the drill OM
       // currently has open". Never show the operating-system file picker in
       // this mode; OM is the authoritative project selection.
-      const result = syncConnectedRef.current
+      const result = syncEnabledRef.current
         ? await window.march3d.openSyncedDotsFile()
         : await window.march3d.openDotsFile();
 
       if (!result) {
-        if (syncConnectedRef.current) {
+        if (syncEnabledRef.current) {
           setError(
             "OpenMarch is synced, but it has not reported an open .dots file yet. Switch/open a drill in OpenMarch and try again.",
           );
@@ -452,11 +629,12 @@ export default function App() {
   }
 
   async function togglePlayback(force?: boolean) {
-    if (syncConnected) return;
+    if (syncEnabledRef.current) return;
     const next = force ?? !playingRef.current;
     const audio = audioRef.current;
 
     if (!next) {
+      pendingStandalonePlayRef.current = false;
       playingRef.current = false;
       setPlaying(false);
       standaloneAnchorRef.current = {
@@ -480,6 +658,69 @@ export default function App() {
     };
     playingRef.current = true;
     setPlaying(true);
+
+    // Desync intentionally does not load the embedded audio immediately. A
+    // synced OpenMarch .dots file can contain a large audio track, and parsing
+    // that SQLite data on the renderer thread made the first Desync appear to
+    // freeze March3D for a long time. Load it lazily only when standalone
+    // playback is actually requested.
+    if (!audioUrl && sourcePath && window.march3d?.isElectron) {
+      pendingStandalonePlayRef.current = true;
+      if (!standaloneAudioLoadingRef.current) {
+        standaloneAudioLoadingRef.current = true;
+        setError("Loading embedded audio for standalone playback…");
+        void (async () => {
+          try {
+            // IMPORTANT: do not call loadBuffer(..., includeAudioData=true)
+            // here. That reparses the full .dots database on the React
+            // renderer thread and can make a large drill appear frozen for a
+            // long time. Electron extracts only the selected audio BLOB in the
+            // main process, while the current drill/3D data stays untouched.
+            const embedded =
+              await window.march3d!.readEmbeddedAudio(sourcePath);
+            if (!embedded?.data?.byteLength) {
+              throw new Error(
+                "No embedded audio track was found in this drill.",
+              );
+            }
+
+            const url = URL.createObjectURL(
+              new Blob(
+                [
+                  embedded.data.buffer.slice(
+                    embedded.data.byteOffset,
+                    embedded.data.byteOffset + embedded.data.byteLength,
+                  ) as ArrayBuffer,
+                ],
+                { type: audioMime(embedded.path) },
+              ),
+            );
+
+            setExternalAudio((current) => {
+              if (current?.url) URL.revokeObjectURL(current.url);
+              return {
+                name:
+                  embedded.nickname ||
+                  embedded.path.split(/[\\/]/).pop() ||
+                  "Embedded audio",
+                url,
+              };
+            });
+          } catch (e) {
+            console.error("Could not load standalone audio", e);
+            pendingStandalonePlayRef.current = false;
+            playingRef.current = false;
+            setPlaying(false);
+            setError(
+              `Audio could not be loaded: ${e instanceof Error ? e.message : "unknown error"}`,
+            );
+          } finally {
+            standaloneAudioLoadingRef.current = false;
+          }
+        })();
+      }
+      return;
+    }
 
     if (!audio || !audioUrl) return;
     const sourceTime = playheadRef.current - (drill?.audioOffsetSeconds ?? 0);
@@ -515,12 +756,100 @@ export default function App() {
       position: time,
       startedAt: performance.now(),
     };
-    if (audioRef.current && !syncConnectedRef.current) {
+    if (audioRef.current && !syncEnabledRef.current) {
       audioRef.current.currentTime = Math.max(
         0,
         time - (drill?.audioOffsetSeconds ?? 0),
       );
     }
+  }
+
+  async function resyncWithOpenMarch() {
+    if (!syncConnectedRef.current) {
+      setError("OpenMarch Sync is not connected.");
+      return;
+    }
+
+    syncEnabledRef.current = true;
+    setSyncEnabled(true);
+    setError("");
+
+    // OpenMarch owns the audio while synchronized. Stop any standalone audio
+    // before we hand the timeline back to OM.
+    audioRef.current?.pause();
+    standaloneAudioStartedRef.current = false;
+
+    // Make sure March3D is showing the same drill OM currently has open.
+    try {
+      const current = window.march3d?.isElectron
+        ? await window.march3d.openSyncedDotsFile()
+        : null;
+      if (current?.path && current.path !== sourcePath) {
+        const bytes = await window.march3d!.readFile(current.path);
+        setExternalAudio((existing) => {
+          if (existing?.url) URL.revokeObjectURL(existing.url);
+          return null;
+        });
+        await loadBuffer(
+          bytes,
+          current.name ||
+            current.path.split(/[\\/]/).pop() ||
+            "OpenMarch drill",
+          current.path,
+          false,
+          false,
+          false,
+        );
+        await window.march3d!.watchFile(current.path);
+        lastOmDrillPathRef.current = current.path;
+      }
+    } catch (e) {
+      console.error("Could not resync the OpenMarch drill", e);
+      setError(
+        `Could not resync with OpenMarch: ${e instanceof Error ? e.message : "unknown error"}`,
+      );
+      return;
+    }
+
+    const position = Math.max(0, Number(lastOmPositionRef.current) || 0);
+    // Keep the raw OM position here. If the resync also had to load a new
+    // drill, React may not have committed its new timeline yet; the render
+    // clock will clamp the position against the new duration on the next frame.
+    playheadRef.current = position;
+    setPlayhead(position);
+    syncAnchorRef.current = {
+      position,
+      receivedAt: performance.now(),
+    };
+    playingRef.current = lastOmPlayingRef.current;
+    setPlaying(lastOmPlayingRef.current);
+  }
+
+  function syncWithOpenMarch() {
+    void resyncWithOpenMarch();
+  }
+
+  function desyncFromOpenMarch() {
+    if (!syncEnabledRef.current) return;
+
+    syncEnabledRef.current = false;
+    setSyncEnabled(false);
+    // Keep the current visual position, but stop treating OpenMarch as the
+    // authoritative transport. This immediately makes local play/pause usable.
+    playingRef.current = false;
+    setPlaying(false);
+    standaloneAnchorRef.current = {
+      position: playheadRef.current,
+      startedAt: performance.now(),
+    };
+    standaloneAudioStartedRef.current = false;
+    audioRef.current?.pause();
+    setError("");
+
+    // Do not read/parse the .dots audio here. Synced files can contain a large
+    // embedded track, and doing that work during Desync blocks the renderer.
+    // Standalone audio is loaded lazily the next time the user presses Play.
+    pendingStandalonePlayRef.current = false;
   }
 
   // OpenMarch can touch a .dots SQLite database many times during a single UI
@@ -571,6 +900,8 @@ export default function App() {
     return window.march3d.onOpenMarchSync((message) => {
       if (message.type === "drill-file") {
         const path = message.path;
+        lastOmDrillPathRef.current = path || null;
+        if (!syncEnabledRef.current) return;
         if (!path || path === sourcePath || autoOpeningPathRef.current === path)
           return;
         autoOpeningPathRef.current = path;
@@ -612,10 +943,12 @@ export default function App() {
       if (message.type === "connection") {
         syncConnectedRef.current = message.connected;
         setSyncConnected(message.connected);
+
         if (message.connected) {
-          // OpenMarch is the sole audio player while connected. Connecting must
-          // not rebuild/reset the 3D scene; wait for OM's first transport
-          // position instead. This keeps large-band connection effectively free.
+          // A new OpenMarch connection starts synchronized, preserving the
+          // existing behavior. Users can explicitly Desync from the Sync tab.
+          syncEnabledRef.current = true;
+          setSyncEnabled(true);
           audioRef.current?.pause();
           playingRef.current = false;
           setPlaying(false);
@@ -623,6 +956,16 @@ export default function App() {
             position: playheadRef.current,
             receivedAt: performance.now(),
           };
+        } else {
+          // A real disconnect must release the playback lock so the local Play
+          // button becomes usable again.
+          if (syncEnabledRef.current) {
+            syncEnabledRef.current = false;
+            setSyncEnabled(false);
+            playingRef.current = false;
+            setPlaying(false);
+          }
+          lastOmPlayingRef.current = false;
         }
         return;
       }
@@ -636,9 +979,10 @@ export default function App() {
         // audioOffsetSeconds again made negative-offset shows (for example
         // -6.5 s) render that many seconds BEHIND OpenMarch.
         const safeTime = Math.max(0, time);
+        lastOmPositionRef.current = safeTime;
         // Never let the local audio element drive the synced timeline.
-        // OpenMarch's Web Audio clock is authoritative.
-        if (syncConnectedRef.current) {
+        // OpenMarch's Web Audio clock is authoritative while Sync is enabled.
+        if (syncEnabledRef.current) {
           // Do not seek the paused HTMLAudioElement for every OpenMarch clock
           // packet. currentTime writes are expensive media seeks and were a
           // major source of renderer stalls on large drills.
@@ -660,20 +1004,16 @@ export default function App() {
       }
 
       if (message.type === "playback") {
-        // No local audio playback in connected mode. The OpenMarch audio is
-        // already the audible source; the plugin's position messages drive
-        // the 3D timeline.
+        // Always remember OM's transport state so Resync can snap back to the
+        // latest OpenMarch playback state. Only apply it to March3D while Sync
+        // is enabled.
+        lastOmPlayingRef.current = !!message.playing;
+        if (!syncEnabledRef.current) return;
+
         playingRef.current = !!message.playing;
         setPlaying(!!message.playing);
-        if (!message.playing) {
-          syncAnchorRef.current = {
-            position: playheadRef.current,
-            receivedAt: performance.now(),
-          };
-          return;
-        }
         syncAnchorRef.current = {
-          position: playheadRef.current,
+          position: lastOmPositionRef.current,
           receivedAt: performance.now(),
         };
         return;
@@ -686,6 +1026,84 @@ export default function App() {
     : 0;
 
   useEffect(() => {
+    if (
+      syncEnabledRef.current ||
+      !audioUrl ||
+      !pendingStandalonePlayRef.current
+    )
+      return;
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    pendingStandalonePlayRef.current = false;
+    const sourceTime = Math.max(
+      0,
+      playheadRef.current - (drill?.audioOffsetSeconds ?? 0),
+    );
+    audio.currentTime = sourceTime;
+    standaloneAudioStartedRef.current = true;
+    setError("");
+    void audio.play().catch((e) => {
+      playingRef.current = false;
+      setPlaying(false);
+      standaloneAudioStartedRef.current = false;
+      setError(
+        `Audio could not start: ${e instanceof Error ? e.message : "browser blocked playback"}`,
+      );
+    });
+  }, [audioUrl, drill?.audioOffsetSeconds]);
+
+  // Developer shortcut and drill info sidebar shortcut.
+  useEffect(() => {
+    const handleShortcuts = (event: KeyboardEvent) => {
+      const key = event.key.toLowerCase();
+
+      if (developerMode && event.ctrlKey && event.shiftKey && key === "i") {
+        event.preventDefault();
+        window.march3d?.openDevTools();
+        return;
+      }
+
+      if (event.ctrlKey && !event.shiftKey && !event.altKey && key === "b") {
+        event.preventDefault();
+        setShowDrillInfo((current) => !current);
+        return;
+      }
+
+      // Spacebar is the global play/pause shortcut. Do not steal it while the
+      // user is typing in a text field or interacting with another form control.
+      const target = event.target as HTMLElement | null;
+      const isEditable =
+        target?.tagName === "INPUT" ||
+        target?.tagName === "TEXTAREA" ||
+        target?.tagName === "SELECT" ||
+        target?.isContentEditable;
+
+      if (
+        key === " " &&
+        !event.ctrlKey &&
+        !event.shiftKey &&
+        !event.altKey &&
+        !event.metaKey &&
+        !isEditable
+      ) {
+        event.preventDefault();
+        void togglePlayback();
+      }
+    };
+
+    window.addEventListener("keydown", handleShortcuts);
+    return () => window.removeEventListener("keydown", handleShortcuts);
+  }, [
+    developerMode,
+    syncEnabled,
+    duration,
+    audioUrl,
+    drill?.audioOffsetSeconds,
+    pageIndexForTime,
+  ]);
+
+  useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
 
@@ -694,7 +1112,7 @@ export default function App() {
       // animation ends. If the audio ends first, continue the drill silently.
       standaloneAudioStartedRef.current = false;
       if (
-        !syncConnectedRef.current &&
+        !syncEnabledRef.current &&
         duration > 0 &&
         playheadRef.current >= duration - 0.02
       ) {
@@ -731,7 +1149,7 @@ export default function App() {
       let desiredTime = visualTime;
       let advancing = false;
 
-      if (syncConnectedRef.current) {
+      if (syncEnabledRef.current) {
         const anchor = syncAnchorRef.current;
         desiredTime = anchor.position;
         if (playingRef.current) {
@@ -785,7 +1203,7 @@ export default function App() {
       else visualTime = Math.max(0, visualTime);
 
       if (
-        !syncConnectedRef.current &&
+        !syncEnabledRef.current &&
         playingRef.current &&
         duration > 0 &&
         visualTime >= duration - 0.0005
@@ -803,7 +1221,7 @@ export default function App() {
       // only need a 5 Hz sidebar refresh; the marcher animation still reads the
       // ref every display frame and stays smooth.
       const uiInterval =
-        syncConnectedRef.current || (drill?.marchers.length ?? 0) > 160
+        syncEnabledRef.current || (drill?.marchers.length ?? 0) > 160
           ? 200
           : 100;
       if (now - lastUiUpdate >= uiInterval) {
@@ -831,52 +1249,274 @@ export default function App() {
   ]);
 
   return (
-    <div className="app">
-      <header>
+    <div className="app" onContextMenu={handleDeveloperContextMenu}>
+      <nav className="top-bar" ref={menuRef} aria-label="Application menu">
         <div className="brand">
           <img src={logoUrl} alt="March3D" className="brand-logo" />
           <div>
             <strong>March3D</strong>
             <span className="subtitle">
-              OpenMarch 3D Viewer · v{packageJson.version}
+              OpenMarch 3D Viewer · v{__APP_VERSION__}
             </span>
           </div>
         </div>
-        <button className="button" onClick={openDots}>
-          Open .dots
-        </button>
-        <input
-          id="dots-input"
-          type="file"
-          accept=".dots,.sqlite"
-          hidden
-          onChange={(e) => openFile(e.target.files?.[0])}
-        />
-        <button className="button secondary" onClick={chooseAudio}>
-          Audio
-        </button>
-        <input
-          id="audio-input"
-          type="file"
-          accept="audio/*"
-          hidden
-          onChange={(e) => {
-            const file = e.target.files?.[0];
-            if (!file) return;
-            if (externalAudio?.url) URL.revokeObjectURL(externalAudio.url);
-            setExternalAudio({
-              name: file.name,
-              url: URL.createObjectURL(file),
-            });
-          }}
-        />
-        <button
-          className="play-button"
-          disabled={!audioUrl || syncConnected}
-          onClick={() => void togglePlayback()}
-        >
-          {syncConnected ? "OM Sync" : playing ? "Pause" : "Play"}
-        </button>
+
+        <div className="window-controls" aria-label="Window controls">
+          <button
+            type="button"
+            title="Minimize"
+            aria-label="Minimize"
+            onClick={() => window.march3d?.minimizeWindow()}
+          >
+            <span className="minimize-icon" />
+          </button>
+          <button
+            type="button"
+            title="Maximize or restore"
+            aria-label="Maximize or restore"
+            onClick={() => window.march3d?.toggleMaximizeWindow()}
+          >
+            <span
+              className={`maximize-icon${isMaximized ? " is-maximized" : ""}`}
+            />
+          </button>
+          <button
+            type="button"
+            className="close-window"
+            title="Close"
+            aria-label="Close"
+            onClick={() => window.march3d?.closeWindow()}
+          >
+            <span className="close-icon" />
+          </button>
+        </div>
+      </nav>
+      <header>
+        <nav className="menu-bar" ref={menuRef} aria-label="Application menu">
+          {["File", "Sync", "View", "Settings"].map((menu) => (
+            <div className="menu-group" key={menu}>
+              <button
+                type="button"
+                className={`menu-trigger${openMenu === menu ? " active" : ""}`}
+                aria-haspopup="true"
+                aria-expanded={openMenu === menu}
+                onClick={() =>
+                  setOpenMenu((current) => (current === menu ? null : menu))
+                }
+              >
+                {menu}
+              </button>
+              {openMenu === menu && (
+                <div className="menu-dropdown" role="menu">
+                  {menu === "File" && (
+                    <>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setOpenMenu(null);
+                          void openDots();
+                        }}
+                      >
+                        Open .dots
+                      </button>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setOpenMenu(null);
+                          void chooseAudio();
+                        }}
+                      >
+                        Open Audio
+                      </button>
+                      <div className="menu-divider" />
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setOpenMenu(null);
+                          window.close();
+                        }}
+                      >
+                        Exit
+                      </button>
+                    </>
+                  )}
+                  {menu === "Sync" && (
+                    <>
+                      <div className="menu-section-label">OpenMarch</div>
+                      <div className="sync-menu-status">
+                        <span
+                          className={`sync-menu-dot${syncConnected ? " online" : ""}`}
+                        />
+                        <span>
+                          {syncConnected
+                            ? syncEnabled
+                              ? playing
+                                ? "Connected · Synced · Live playback"
+                                : "Connected · Synced · Paused"
+                              : "Connected · Desynced"
+                            : "Disconnected"}
+                        </span>
+                      </div>
+                      {drill?.sourceName && (
+                        <div
+                          className="sync-menu-drill"
+                          title={drill.sourceName}
+                        >
+                          {drill.sourceName}
+                        </div>
+                      )}
+                      <div className="menu-divider" />
+                      <button
+                        type="button"
+                        role="menuitem"
+                        disabled={!syncConnected}
+                        onClick={() => {
+                          setOpenMenu(null);
+                          syncWithOpenMarch();
+                        }}
+                      >
+                        Sync with OpenMarch
+                      </button>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        disabled={!syncConnected}
+                        onClick={() => {
+                          setOpenMenu(null);
+                          void resyncWithOpenMarch();
+                        }}
+                      >
+                        Resync with OpenMarch
+                      </button>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        disabled={!syncEnabled}
+                        onClick={() => {
+                          setOpenMenu(null);
+                          void desyncFromOpenMarch();
+                        }}
+                      >
+                        Desync from OpenMarch
+                      </button>
+                      <div className="menu-divider" />
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setOpenMenu(null);
+                          void openDots();
+                        }}
+                      >
+                        {syncEnabled ? "Open Synced Drill" : "Open .dots"}
+                      </button>
+                      {!syncConnected && (
+                        <div className="sync-menu-help">
+                          Run the March3D Sync .om.js plugin in OpenMarch to
+                          connect.
+                        </div>
+                      )}
+                    </>
+                  )}
+                  {menu === "View" && (
+                    <>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setShowDrillInfo((current) => !current);
+                          setOpenMenu(null);
+                        }}
+                      >
+                        <span>
+                          {showDrillInfo ? "✓  Drill Info" : "Drill Info"}
+                        </span>
+                        <span className="menu-shortcut">Ctrl+B</span>
+                      </button>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setLabels((current) => !current);
+                          setOpenMenu(null);
+                        }}
+                      >
+                        {labels ? "Hide Marcher Labels" : "Show Marcher Labels"}
+                      </button>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setOpenMenu(null);
+                          if (document.fullscreenElement)
+                            void document.exitFullscreen();
+                          else
+                            void document.documentElement.requestFullscreen();
+                        }}
+                      >
+                        Toggle Fullscreen
+                      </button>
+                    </>
+                  )}
+                  {menu === "Settings" && (
+                    <>
+                      <div className="menu-section-label">Display</div>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setLabels((current) => !current);
+                          setOpenMenu(null);
+                        }}
+                      >
+                        {labels ? "✓  Marcher Labels" : "Marcher Labels"}
+                      </button>
+                      <div className="menu-divider" />
+                      <div className="menu-section-label">Application</div>
+                      <button type="button" role="menuitem" disabled>
+                        Preferences (coming soon)
+                      </button>
+                      <div className="menu-divider" />
+
+                      <div className="menu-section-label">Developer</div>
+
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          const next = !developerMode;
+
+                          setDeveloperMode(next);
+                          localStorage.setItem(
+                            "march3d-developer-mode",
+                            String(next),
+                          );
+                        }}
+                      >
+                        {developerMode ? "✓ Developer Mode" : "Developer Mode"}
+                      </button>
+
+                      <button
+                        type="button"
+                        role="menuitem"
+                        disabled={!developerMode}
+                        onClick={() => {
+                          setOpenMenu(null);
+                          window.march3d?.openDevTools();
+                        }}
+                      >
+                        Open Developer Tools
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
+        </nav>
         {drill && <div className="source">{drill.sourceName}</div>}
       </header>
       <main>
@@ -887,6 +1527,38 @@ export default function App() {
               pageTimes={pageTimes}
               playheadRef={playheadRef}
               duration={duration}
+            />
+          )}
+          {drill && (
+            <PlaybackRibbon
+              duration={duration}
+              playhead={playhead}
+              playing={playing}
+              syncActive={syncEnabled}
+              canPlay={Boolean(audioUrl || (drill && !syncEnabled))}
+              onToggle={() => void togglePlayback()}
+              onPrevious={() => seekToPage(pageIndex - 1)}
+              onNext={() => seekToPage(pageIndex + 1)}
+              onSeek={(time) => {
+                playheadRef.current = time;
+                syncAnchorRef.current = {
+                  position: time,
+                  receivedAt: performance.now(),
+                };
+                setPlayhead(time);
+                setPageIndex(pageIndexForTime(time));
+                standaloneAnchorRef.current = {
+                  position: time,
+                  startedAt: performance.now(),
+                };
+                if (audioRef.current && !syncEnabled)
+                  audioRef.current.currentTime = Math.max(
+                    0,
+                    time - (drill.audioOffsetSeconds ?? 0),
+                  );
+              }}
+              canPrevious={pageIndex > 0}
+              canNext={pageIndex < drill.pages.length - 1}
             />
           )}
           {drill && page ? (
@@ -911,146 +1583,154 @@ export default function App() {
             </div>
           )}
         </section>
-        <aside>
-          <h2>Drill</h2>
-          {drill ? (
-            <>
-              <div className="stat">
-                <span>Field</span>
-                <b>{drill.field.name}</b>
-              </div>
-              <div className="stat">
-                <span>Marchers</span>
-                <b>{drill.marchers.length}</b>
-              </div>
-              <div className="stat">
-                <span>Sets</span>
-                <b>{drill.pages.length}</b>
-              </div>
-              <div className="stat">
-                <span>Sections</span>
-                <b>{sections.length}</b>
-              </div>
-              <div className="sync-status">
-                <span className={syncConnected ? "dot online" : "dot"}></span>
-                {syncConnected ? "OpenMarch connected" : "Standalone mode"}
-              </div>
-              <hr />
-              <label className="check">
+        {showDrillInfo && (
+          <aside>
+            <h2>Drill</h2>
+            {drill ? (
+              <>
+                <div className="stat">
+                  <span>Field</span>
+                  <b>{drill.field.name}</b>
+                </div>
+                <div className="stat">
+                  <span>Marchers</span>
+                  <b>{drill.marchers.length}</b>
+                </div>
+                <div className="stat">
+                  <span>Sets</span>
+                  <b>{drill.pages.length}</b>
+                </div>
+                <div className="stat">
+                  <span>Sections</span>
+                  <b>{sections.length}</b>
+                </div>
+                <div className="sync-status">
+                  <span className={syncConnected ? "dot online" : "dot"}></span>
+                  {syncConnected
+                    ? syncEnabled
+                      ? "OpenMarch synced"
+                      : "OpenMarch connected · desynced"
+                    : "Standalone mode"}
+                </div>
+                <hr />
+                <label className="check">
+                  <input
+                    type="checkbox"
+                    checked={labels}
+                    onChange={(e) => setLabels(e.target.checked)}
+                  />{" "}
+                  Labels
+                </label>
+                <h3>Playback</h3>
+                <div className="play-row">
+                  <button
+                    onClick={() => seekToPage(pageIndex - 1)}
+                    disabled={pageIndex === 0}
+                  >
+                    ◀
+                  </button>
+                  <button
+                    className="big-play"
+                    disabled={!audioUrl && syncEnabled}
+                    onClick={() => void togglePlayback()}
+                  >
+                    {syncEnabled ? "OM" : playing ? "❚❚" : "▶"}
+                  </button>
+                  <button
+                    onClick={() => seekToPage(pageIndex + 1)}
+                    disabled={pageIndex === drill.pages.length - 1}
+                  >
+                    ▶
+                  </button>
+                </div>
                 <input
-                  type="checkbox"
-                  checked={labels}
-                  onChange={(e) => setLabels(e.target.checked)}
-                />{" "}
-                Labels
-              </label>
-              <h3>Playback</h3>
-              <div className="play-row">
-                <button
-                  onClick={() => seekToPage(pageIndex - 1)}
-                  disabled={pageIndex === 0}
-                >
-                  ◀
-                </button>
-                <button
-                  className="big-play"
-                  disabled={!audioUrl || syncConnected}
-                  onClick={() => void togglePlayback()}
-                >
-                  {syncConnected ? "OM" : playing ? "❚❚" : "▶"}
-                </button>
-                <button
-                  onClick={() => seekToPage(pageIndex + 1)}
-                  disabled={pageIndex === drill.pages.length - 1}
-                >
-                  ▶
-                </button>
-              </div>
-              <input
-                className="range"
-                type="range"
-                min="0"
-                max={Math.max(0, duration)}
-                step="0.01"
-                value={Math.min(playhead, duration || 0)}
-                onChange={(e) => {
-                  const time = +e.target.value;
-                  playheadRef.current = time;
-                  syncAnchorRef.current = {
-                    position: time,
-                    receivedAt: performance.now(),
-                  };
-                  setPlayhead(time);
-                  setPageIndex(pageIndexForTime(time));
-                  standaloneAnchorRef.current = {
-                    position: time,
-                    startedAt: performance.now(),
-                  };
-                  if (audioRef.current && !syncConnected)
-                    audioRef.current.currentTime = Math.max(
-                      0,
-                      time - (drill?.audioOffsetSeconds ?? 0),
-                    );
-                }}
-              />
-              <div className="time">
-                <span>
+                  className="range"
+                  type="range"
+                  min="0"
+                  max={Math.max(0, duration)}
+                  step="0.01"
+                  value={Math.min(playhead, duration || 0)}
+                  onChange={(e) => {
+                    const time = +e.target.value;
+                    playheadRef.current = time;
+                    syncAnchorRef.current = {
+                      position: time,
+                      receivedAt: performance.now(),
+                    };
+                    setPlayhead(time);
+                    setPageIndex(pageIndexForTime(time));
+                    standaloneAnchorRef.current = {
+                      position: time,
+                      startedAt: performance.now(),
+                    };
+                    if (audioRef.current && !syncEnabled)
+                      audioRef.current.currentTime = Math.max(
+                        0,
+                        time - (drill?.audioOffsetSeconds ?? 0),
+                      );
+                  }}
+                />
+                <div className="time">
+                  <span>
+                    Set {drill.pages[pageIndex]?.displayNumber ?? pageIndex}
+                  </span>
+                  <span>
+                    {Math.floor(playhead / 60)}:
+                    {String(Math.floor(playhead % 60)).padStart(2, "0")}
+                  </span>
+                </div>
+                <h3>
                   Set {drill.pages[pageIndex]?.displayNumber ?? pageIndex}
-                </span>
-                <span>
-                  {Math.floor(playhead / 60)}:
-                  {String(Math.floor(playhead % 60)).padStart(2, "0")}
-                </span>
-              </div>
-              <h3>Set {drill.pages[pageIndex]?.displayNumber ?? pageIndex}</h3>
-              <input
-                className="range"
-                type="range"
-                min="0"
-                max={Math.max(0, drill.pages.length - 1)}
-                value={pageIndex}
-                onChange={(e) => seekToPage(+e.target.value)}
-              />
-              <div className="setnav">
-                <button
-                  disabled={pageIndex === 0}
-                  onClick={() => seekToPage(pageIndex - 1)}
-                >
-                  Previous
-                </button>
-                <button
-                  disabled={pageIndex === drill.pages.length - 1}
-                  onClick={() => seekToPage(pageIndex + 1)}
-                >
-                  Next
-                </button>
-              </div>
-              <p className="hint">
-                Mouse: orbit · Wheel: zoom · Right mouse: pan
-              </p>
-              <div className="audio-info">
-                <b>Audio</b>
-                <span>
-                  {externalAudio?.name ??
-                    drill.audio?.nickname ??
-                    drill.audio?.path?.split(/[\\/]/).pop() ??
-                    "No audio loaded"}
-                </span>
-              </div>
-              <h3>Sections</h3>
-              <div className="sections">
-                {sections.map((s) => (
-                  <span key={s}>{s}</span>
-                ))}
-              </div>
-            </>
-          ) : (
-            <p className="hint">No drill loaded.</p>
-          )}
-          {error && <div className="error">{error}</div>}
-        </aside>
+                </h3>
+                <input
+                  className="range"
+                  type="range"
+                  min="0"
+                  max={Math.max(0, drill.pages.length - 1)}
+                  value={pageIndex}
+                  onChange={(e) => seekToPage(+e.target.value)}
+                />
+                <div className="setnav">
+                  <button
+                    disabled={pageIndex === 0}
+                    onClick={() => seekToPage(pageIndex - 1)}
+                  >
+                    Previous
+                  </button>
+                  <button
+                    disabled={pageIndex === drill.pages.length - 1}
+                    onClick={() => seekToPage(pageIndex + 1)}
+                  >
+                    Next
+                  </button>
+                </div>
+                <p className="hint">
+                  Mouse: orbit · Wheel: zoom · Right mouse: pan
+                </p>
+                <div className="audio-info">
+                  <b>Audio</b>
+                  <span>
+                    {externalAudio?.name ??
+                      drill.audio?.nickname ??
+                      drill.audio?.path?.split(/[\\/]/).pop() ??
+                      "No audio loaded"}
+                  </span>
+                </div>
+                <h3>Sections</h3>
+                <div className="sections">
+                  {sections.map((s) => (
+                    <span key={s}>{s}</span>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <p className="hint">No drill loaded.</p>
+            )}
+            {error && <div className="error">{error}</div>}
+          </aside>
+        )}
       </main>
-      {audioUrl && <audio ref={audioRef} src={audioUrl} preload="auto" />}
+      {audioUrl && <audio ref={audioRef} src={audioUrl} preload="none" />}
     </div>
   );
 }

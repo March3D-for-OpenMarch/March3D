@@ -4,9 +4,21 @@ declare global {
   interface Window {
     march3d?: {
       isElectron: boolean;
+      minimizeWindow: () => void;
+      toggleMaximizeWindow: () => void;
+      isMaximized: () => Promise<boolean>;
+      closeWindow: () => void;
+      onWindowMaximized: (callback: (maximized: boolean) => void) => () => void;
+      openDevTools: () => void;
+      inspectElement: (x: number, y: number) => void;
       openDotsFile: () => Promise<{ path: string; name: string } | null>;
       openSyncedDotsFile: () => Promise<{ path: string; name: string } | null>;
       readFile: (path: string) => Promise<Uint8Array>;
+      readEmbeddedAudio: (path: string) => Promise<{
+        path: string;
+        nickname: string | null;
+        data: Uint8Array;
+      } | null>;
       watchFile: (path: string) => Promise<boolean>;
       stopWatching: () => Promise<void>;
       onDotsChanged: (

@@ -228,6 +228,51 @@ async function readFileBytes(filePath) {
   return new Uint8Array(await fs.promises.readFile(filePath));
 }
 
+// Embedded OpenMarch audio is stored as a BLOB inside the .dots SQLite file.
+// Extract it in Electron's main process instead of asking the React renderer
+// to parse the entire database when standalone playback starts. That keeps the
+// 3D renderer responsive even for large drills with long embedded tracks.
+let sqlJsAudioPromise = null;
+
+async function readEmbeddedAudio(filePath) {
+  if (!sqlJsAudioPromise) {
+    const initSqlJs = require("sql.js");
+    const wasmPath = require.resolve("sql.js/dist/sql-wasm.wasm");
+    sqlJsAudioPromise = initSqlJs({ locateFile: () => wasmPath });
+  }
+
+  const SQL = await sqlJsAudioPromise;
+  const buffer = await fs.promises.readFile(filePath);
+  const db = new SQL.Database(new Uint8Array(buffer));
+
+  try {
+    const result = db.exec(
+      `SELECT path,nickname,data,selected FROM audio_files WHERE selected = 1 ORDER BY id LIMIT 1`,
+    )[0];
+
+    if (!result || !result.values.length) return null;
+
+    const columns = Object.fromEntries(
+      result.columns.map((name, index) => [name, result.values[0][index]]),
+    );
+
+    if (!columns.data) return null;
+
+    const data =
+      columns.data instanceof Uint8Array
+        ? columns.data
+        : new Uint8Array(columns.data);
+
+    return {
+      path: columns.path ?? "embedded-audio.mp3",
+      nickname: columns.nickname ?? null,
+      data,
+    };
+  } finally {
+    db.close();
+  }
+}
+
 function startFileWatcher(filePath) {
   if (watcher) {
     watcher.close();
@@ -382,6 +427,7 @@ function startSyncServer() {
 
 function createWindow() {
   mainWindow = new BrowserWindow({
+    frame: false,
     width: 1500,
     height: 950,
     minWidth: 1100,
@@ -395,12 +441,49 @@ function createWindow() {
     },
   });
 
+  // The renderer provides an OpenMarch-inspired React menu bar.
+  mainWindow.setMenu(null);
+  mainWindow.on("maximize", () =>
+    mainWindow?.webContents.send("window:maximized", true),
+  );
+  mainWindow.on("unmaximize", () =>
+    mainWindow?.webContents.send("window:maximized", false),
+  );
+
   if (process.env.VITE_DEV_SERVER_URL) {
     mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
   } else {
     mainWindow.loadFile(path.join(__dirname, "../dist/index.html"));
   }
 }
+
+ipcMain.on("window:minimize", () => mainWindow?.minimize());
+ipcMain.on("window:toggle-maximize", () => {
+  if (!mainWindow) return;
+  if (mainWindow.isMaximized()) mainWindow.unmaximize();
+  else mainWindow.maximize();
+});
+ipcMain.on("window:close", () => mainWindow?.close());
+ipcMain.handle("window:is-maximized", () => Boolean(mainWindow?.isMaximized()));
+ipcMain.on("devtools:open", () => {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+
+  mainWindow.webContents.openDevTools({
+    mode: "detach",
+  });
+});
+
+ipcMain.on("devtools:inspect-element", (_event, { x, y }) => {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+
+  if (typeof x !== "number" || typeof y !== "number") return;
+
+  mainWindow.webContents.openDevTools({
+    mode: "detach",
+  });
+
+  mainWindow.webContents.inspectElement(x, y);
+});
 
 ipcMain.handle("dots:open-synced", async () => {
   // When OpenMarch is connected, the renderer should never show a file picker.
@@ -433,6 +516,11 @@ ipcMain.handle("dots:open", async () => {
 
 ipcMain.handle("file:read", async (_event, filePath) => {
   return readFileBytes(filePath);
+});
+
+ipcMain.handle("audio:read-embedded", async (_event, filePath) => {
+  if (typeof filePath !== "string" || !filePath) return null;
+  return readEmbeddedAudio(filePath);
 });
 
 ipcMain.handle("dots:watch", async (_event, filePath) => {
