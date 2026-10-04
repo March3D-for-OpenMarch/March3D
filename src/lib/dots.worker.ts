@@ -14,7 +14,16 @@ self.onmessage = async (event: MessageEvent<RequestMessage>) => {
   try {
     const drill = await parseDots(buffer, sourceName, includeAudioData);
     const prepared = prepareDrillPositions(drill);
-    const result: Drill = { ...drill, preparedPositions: prepared };
+
+    // The renderer only needs the compact prepared table. Keeping the raw
+    // marcher_pages rows as well can make the Drill object enormous, and that
+    // object is passed through React during a file switch. Drop the duplicate
+    // raw positions once preparation is complete.
+    const result: Drill = {
+      ...drill,
+      positions: [],
+      preparedPositions: prepared,
+    };
 
     self.postMessage({ id, ok: true, drill: result });
   } catch (error) {

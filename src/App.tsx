@@ -315,9 +315,7 @@ export default function App() {
   }, [drill]);
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const menuRef = useRef<HTMLElement | null>(null);
-  const [developerMode, setDeveloperMode] = useState(
-    () => localStorage.getItem("march3d-developer-mode") === "true",
-  );
+  const [developerMode, setDeveloperMode] = useState(false);
   const [showDrillInfo, setShowDrillInfo] = useState(false);
   const [pageIndex, setPageIndex] = useState(0);
   const [labels, setLabels] = useState(true);
@@ -334,6 +332,12 @@ export default function App() {
     name: string;
     url: string;
   } | null>(null);
+  // Keep embedded audio bytes out of React state. Large audio blobs become
+  // React DevTools props/state and can trigger DataCloneError/OOM while the
+  // renderer is switching drills. Only the object URL and small metadata need
+  // to participate in React rendering.
+  const [embeddedAudioUrl, setEmbeddedAudioUrl] = useState<string | null>(null);
+  const embeddedAudioUrlRef = useRef<string | null>(null);
   const [sourcePath, setSourcePath] = useState<string | null>(null);
   const [loadVersion, setLoadVersion] = useState(0);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -499,19 +503,6 @@ export default function App() {
     () => (drill ? [...new Set(drill.marchers.map((m) => m.section))] : []),
     [drill],
   );
-  const embeddedAudioUrl = useMemo(() => {
-    if (!drill?.audio?.data) return null;
-    const blob = new Blob(
-      [
-        drill.audio.data.buffer.slice(
-          drill.audio.data.byteOffset,
-          drill.audio.data.byteOffset + drill.audio.data.byteLength,
-        ) as ArrayBuffer,
-      ],
-      { type: audioMime(drill.audio.path) },
-    );
-    return URL.createObjectURL(blob);
-  }, [drill]);
   const audioUrl = externalAudio?.url ?? embeddedAudioUrl;
   const pageIndexForTime = useCallback(
     (time: number) => {
@@ -526,13 +517,15 @@ export default function App() {
     [pageTimes],
   );
 
-  useEffect(
-    () => () => {
-      if (embeddedAudioUrl) URL.revokeObjectURL(embeddedAudioUrl);
+  useEffect(() => {
+    return () => {
+      if (embeddedAudioUrlRef.current) {
+        URL.revokeObjectURL(embeddedAudioUrlRef.current);
+        embeddedAudioUrlRef.current = null;
+      }
       if (externalAudio?.url) URL.revokeObjectURL(externalAudio.url);
-    },
-    [embeddedAudioUrl, externalAudio],
-  );
+    };
+  }, [externalAudio]);
 
   const parseDotsOffThread = useCallback(
     (
@@ -577,9 +570,40 @@ export default function App() {
         // older worker result replace the current drill.
         if (generation !== loadGenerationRef.current) return false;
 
+        // Materialize embedded audio as a Blob URL immediately, then remove
+        // the binary bytes from the Drill object that enters React state.
+        // This keeps potentially large MP3/WAV data out of React DevTools and
+        // prevents Performance.measure/DataCloneError OOMs during file swaps.
+        if (parsed.audio?.data && parsed.audio.data.byteLength > 0) {
+          const blob = new Blob(
+            [
+              parsed.audio.data.buffer.slice(
+                parsed.audio.data.byteOffset,
+                parsed.audio.data.byteOffset + parsed.audio.data.byteLength,
+              ) as ArrayBuffer,
+            ],
+            { type: audioMime(parsed.audio.path) },
+          );
+          const nextUrl = URL.createObjectURL(blob);
+          if (embeddedAudioUrlRef.current) {
+            URL.revokeObjectURL(embeddedAudioUrlRef.current);
+          }
+          embeddedAudioUrlRef.current = nextUrl;
+          setEmbeddedAudioUrl(nextUrl);
+        } else if (includeAudioData) {
+          if (embeddedAudioUrlRef.current) {
+            URL.revokeObjectURL(embeddedAudioUrlRef.current);
+            embeddedAudioUrlRef.current = null;
+          }
+          setEmbeddedAudioUrl(null);
+        }
+
+        const lightweightAudio = parsed.audio
+          ? { ...parsed.audio, data: new Uint8Array() }
+          : null;
         const nextDrill =
           includeAudioData || parsed.audio || !reuseExistingAudio
-            ? parsed
+            ? { ...parsed, audio: lightweightAudio }
             : { ...parsed, audio: drillRef.current?.audio ?? null };
 
         if (resetTransport) {
