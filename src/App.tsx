@@ -9,6 +9,7 @@ import {
 } from "react";
 import Scene from "./viewer/Scene";
 import { type Drill } from "./lib/dots";
+import { parseDotsInWorker } from "./lib/dotsParser";
 import logoUrl from "./assets/March3D-clear.png";
 import * as THREE from "three";
 
@@ -324,6 +325,9 @@ export default function App() {
   const [playhead, setPlayhead] = useState(0);
   const [isMaximized, setIsMaximized] = useState(false);
   const [error, setError] = useState("");
+  const [loadingStage, setLoadingStage] = useState<
+    "reading" | "building" | null
+  >(null);
   const [syncConnected, setSyncConnected] = useState(false);
   const [syncEnabled, setSyncEnabled] = useState(false);
   const [externalAudio, setExternalAudio] = useState<{
@@ -354,8 +358,6 @@ export default function App() {
   const refreshingDotsRef = useRef(false);
   const autoOpeningPathRef = useRef<string | null>(null);
   const loadGenerationRef = useRef(0);
-  const parserWorkerRef = useRef<Worker | null>(null);
-  const parserRejectRef = useRef<((error: Error) => void) | null>(null);
   const fileSwitchingRef = useRef(false);
   // playheadRef is the *visual* timeline used by the 3D scene.  We keep it
   // continuous and gently steer it toward the authoritative audio/OpenMarch
@@ -388,9 +390,6 @@ export default function App() {
   useEffect(() => {
     return () => {
       loadGenerationRef.current++;
-      parserRejectRef.current = null;
-      parserWorkerRef.current?.terminate();
-      parserWorkerRef.current = null;
     };
   }, []);
 
@@ -540,60 +539,8 @@ export default function App() {
       buffer: ArrayBuffer,
       sourceName: string,
       includeAudioData: boolean,
-    ): Promise<Drill> => {
-      if (parserRejectRef.current) {
-        parserRejectRef.current(
-          new Error("Parsing superseded by a newer file load."),
-        );
-        parserRejectRef.current = null;
-      }
-      parserWorkerRef.current?.terminate();
-
-      const worker = new Worker(
-        new URL("./lib/dots.worker.ts", import.meta.url),
-        { type: "module" },
-      );
-      parserWorkerRef.current = worker;
-
-      return new Promise((resolve, reject) => {
-        let settled = false;
-
-        parserRejectRef.current = reject;
-
-        const cleanup = () => {
-          if (parserRejectRef.current === reject) {
-            parserRejectRef.current = null;
-          }
-          if (parserWorkerRef.current === worker) {
-            parserWorkerRef.current = null;
-          }
-          worker.terminate();
-        };
-
-        worker.onmessage = (
-          event: MessageEvent<{ ok: boolean; drill?: Drill; error?: string }>,
-        ) => {
-          if (settled) return;
-          settled = true;
-          cleanup();
-
-          if (event.data.ok && event.data.drill) {
-            resolve(event.data.drill);
-          } else {
-            reject(new Error(event.data.error || "Could not read .dots file."));
-          }
-        };
-
-        worker.onerror = (event) => {
-          if (settled) return;
-          settled = true;
-          cleanup();
-          reject(new Error(event.message || "The .dots parser worker failed."));
-        };
-
-        worker.postMessage({ buffer, sourceName, includeAudioData }, [buffer]);
-      });
-    },
+    ): Promise<Drill> =>
+      parseDotsInWorker(buffer, sourceName, includeAudioData),
     [],
   );
 
@@ -608,6 +555,7 @@ export default function App() {
       resetTransport = !preservePosition,
     ) => {
       setError("");
+      setLoadingStage("reading");
       const generation = ++loadGenerationRef.current;
       const preservedTime = playheadRef.current;
       const inputBuffer =
@@ -652,10 +600,13 @@ export default function App() {
           setPlayhead(preservedTime);
         }
 
-        // Let the browser paint the transport reset before React/Three rebuilds
-        // the marcher scene. This removes the long frozen frame at file swaps.
+        // The parser is complete. Show the building state and give the browser
+        // two paint opportunities before the expensive 3D update begins. The
+        // old scene stays visible during this hand-off, so the loading overlay
+        // can be painted even when a large drill takes a long time to construct.
+        setLoadingStage("building");
         await new Promise<void>((resolve) =>
-          requestAnimationFrame(() => resolve()),
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
         );
 
         if (generation !== loadGenerationRef.current) return false;
@@ -667,28 +618,29 @@ export default function App() {
           setLoadVersion((v) => v + 1);
         });
 
+        // Wait for React Three Fiber to commit the new marcher set before
+        // removing the overlay. The overlay was already painted before the
+        // setDrill transition above.
+        await new Promise<void>((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+        );
+
+        if (generation !== loadGenerationRef.current) return false;
+
         if (resetTransport) {
-          // Keep the transport locked at zero through the first two paint
-          // opportunities. OpenMarch can emit position/playback packets while
-          // React is committing the new scene; accepting those packets here is
-          // what previously made a newly opened drill jump to a stale/random
-          // position.
-          await new Promise<void>((resolve) =>
-            requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
-          );
-          if (generation === loadGenerationRef.current) {
-            playheadRef.current = 0;
-            setPlayhead(0);
-            setPageIndex(0);
-            fileSwitchingRef.current = false;
-          }
+          playheadRef.current = 0;
+          setPlayhead(0);
+          setPageIndex(0);
+          fileSwitchingRef.current = false;
         }
 
+        setLoadingStage(null);
         return true;
       } catch (e) {
         if (generation !== loadGenerationRef.current) return false;
         console.error(e);
         fileSwitchingRef.current = false;
+        setLoadingStage(null);
         setError(e instanceof Error ? e.message : "Could not read .dots file.");
         return false;
       }
@@ -1693,7 +1645,6 @@ export default function App() {
           )}
           {drill && page ? (
             <Scene
-              key={drill.sourceName}
               drill={drill}
               labels={labels}
               pageTimes={pageTimes}
@@ -1710,6 +1661,96 @@ export default function App() {
               <button className="button" onClick={openDots}>
                 Choose .dots
               </button>
+            </div>
+          )}
+          {loadingStage && (
+            <div
+              className="loading-overlay"
+              role="status"
+              aria-live="polite"
+              style={{
+                position: "absolute",
+                inset: 0,
+                zIndex: 20,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                pointerEvents: "auto",
+                background: "rgba(13, 16, 21, 0.72)",
+                backdropFilter: "blur(2px)",
+              }}
+            >
+              <div
+                className="loading-card"
+                style={{
+                  width: "min(420px, calc(100% - 40px))",
+                  boxSizing: "border-box",
+                  padding: "28px 30px",
+                  borderRadius: 14,
+                  background: "rgba(20, 25, 32, 0.96)",
+                  border: "1px solid rgba(255,255,255,0.12)",
+                  boxShadow: "0 18px 60px rgba(0,0,0,0.35)",
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  gap: 10,
+                  textAlign: "center",
+                }}
+              >
+                <div
+                  aria-hidden="true"
+                  style={{
+                    width: 34,
+                    height: 34,
+                    borderRadius: "50%",
+                    border: "3px solid rgba(255,255,255,0.18)",
+                    borderTopColor: "#0f5787",
+                    animation: "march3d-loading-spin 0.8s linear infinite",
+                  }}
+                />
+                <strong style={{ fontSize: 18 }}>
+                  {loadingStage === "reading"
+                    ? "Loading drill…"
+                    : "Building 3D view…"}
+                </strong>
+                <span style={{ opacity: 0.72, lineHeight: 1.45 }}>
+                  {loadingStage === "reading"
+                    ? "Reading the .dots file. Large drills may take a moment."
+                    : "Creating the field and marcher view. Large bands may take a moment."}
+                </span>
+                <div
+                  aria-hidden="true"
+                  style={{
+                    width: "100%",
+                    height: 5,
+                    marginTop: 8,
+                    overflow: "hidden",
+                    borderRadius: 999,
+                    background: "rgba(255,255,255,0.12)",
+                  }}
+                >
+                  <div
+                    style={{
+                      width: "40%",
+                      height: "100%",
+                      borderRadius: 999,
+                      background: "#0f5787",
+                      animation:
+                        "march3d-loading-slide 1.2s ease-in-out infinite",
+                    }}
+                  />
+                </div>
+              </div>
+              <style>{`
+                @keyframes march3d-loading-spin {
+                  to { transform: rotate(360deg); }
+                }
+                @keyframes march3d-loading-slide {
+                  0% { transform: translateX(-140%); }
+                  50% { transform: translateX(150%); }
+                  100% { transform: translateX(280%); }
+                }
+              `}</style>
             </div>
           )}
         </section>

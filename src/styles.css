@@ -480,9 +480,12 @@ canvas {
   transition: 0.3s;
   border-radius: 25px;
 }
-.window-controls button:hover,
-.window-controls .close-window:hover {
+.window-controls button:hover {
   background: rgba(47, 47, 55, 0.5);
+  color: #fff;
+}
+.window-controls .close-window:hover {
+  background: rgba(232, 17, 35, 0.5);
   color: #fff;
 }
 .minimize-icon {

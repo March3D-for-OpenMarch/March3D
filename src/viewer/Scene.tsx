@@ -73,6 +73,7 @@ function Scene({
       <directionalLight position={[-120, 80, -100]} intensity={0.7} />
       <Field drill={drill} />
       <Marchers
+        key={`${resetToken}:${drill.sourceName}:${drill.marchers.length}:${drill.pages.length}`}
         drill={drill}
         labels={labels}
         pageTimes={pageTimes}

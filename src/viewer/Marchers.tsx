@@ -9,6 +9,10 @@ const PLAYING_LENGTH_FEET = 300;
 const FIELD_WIDTH_FEET = 160;
 const STEP_SIZE_INCHES = 22.5;
 const LABEL_PERFORMANCE_LIMIT = 180;
+// Keep one stable InstancedMesh allocation across drill switches. Reusing the
+// GPU buffers avoids temporarily holding two complete marcher scenes in memory
+// while React replaces the old drill with the new one.
+const INSTANCE_CAPACITY = 1024;
 const LEG_LENGTH = 1.35;
 const UPPER_ARM_LENGTH = 0.72;
 const FOREARM_LENGTH = 0.68;
@@ -949,6 +953,7 @@ export default function Marchers({
       flag: flagRef.current,
       rifle: rifleRef.current,
     };
+
     if (
       !torso ||
       !head ||
@@ -961,8 +966,25 @@ export default function Marchers({
       !feet ||
       Object.values(instrumentMeshes).some((mesh) => !mesh) ||
       drill.pages.length === 0
-    )
+    ) {
       return;
+    }
+
+    const count = drill.marchers.length;
+    torso.count = count;
+    head.count = count;
+    shako.count = count;
+    plume.count = count;
+    arms.count = count * 2;
+    forearms.count = count * 2;
+    hands.count = count * 2;
+    legs.count = count * 2;
+    feet.count = count * 2;
+    for (const mesh of Object.values(instrumentMeshes)) {
+      if (mesh) {
+        mesh.count = count;
+      }
+    }
 
     const time = Math.max(0, playheadRef.current || 0);
     if (
@@ -1703,13 +1725,12 @@ export default function Marchers({
   });
 
   const castMarcherShadows = drill.marchers.length <= 140;
-  const count = drill.marchers.length;
 
   return (
     <group>
       <instancedMesh
         ref={torsoRef}
-        args={[undefined, undefined, count]}
+        args={[undefined, undefined, INSTANCE_CAPACITY]}
         castShadow={castMarcherShadows}
         frustumCulled={false}
       >
@@ -1718,7 +1739,7 @@ export default function Marchers({
       </instancedMesh>
       <instancedMesh
         ref={headRef}
-        args={[undefined, undefined, count]}
+        args={[undefined, undefined, INSTANCE_CAPACITY]}
         castShadow={castMarcherShadows}
         frustumCulled={false}
       >
@@ -1727,7 +1748,7 @@ export default function Marchers({
       </instancedMesh>
       <instancedMesh
         ref={shakoRef}
-        args={[undefined, undefined, count]}
+        args={[undefined, undefined, INSTANCE_CAPACITY]}
         castShadow={castMarcherShadows}
         frustumCulled={false}
       >
@@ -1736,7 +1757,7 @@ export default function Marchers({
       </instancedMesh>
       <instancedMesh
         ref={plumeRef}
-        args={[undefined, undefined, count]}
+        args={[undefined, undefined, INSTANCE_CAPACITY]}
         castShadow={castMarcherShadows}
         frustumCulled={false}
       >
@@ -1745,7 +1766,7 @@ export default function Marchers({
       </instancedMesh>
       <instancedMesh
         ref={armsRef}
-        args={[undefined, undefined, count * 2]}
+        args={[undefined, undefined, INSTANCE_CAPACITY * 2]}
         castShadow={castMarcherShadows}
         frustumCulled={false}
       >
@@ -1754,7 +1775,7 @@ export default function Marchers({
       </instancedMesh>
       <instancedMesh
         ref={forearmsRef}
-        args={[undefined, undefined, count * 2]}
+        args={[undefined, undefined, INSTANCE_CAPACITY * 2]}
         castShadow={castMarcherShadows}
         frustumCulled={false}
       >
@@ -1763,7 +1784,7 @@ export default function Marchers({
       </instancedMesh>
       <instancedMesh
         ref={handsRef}
-        args={[undefined, undefined, count * 2]}
+        args={[undefined, undefined, INSTANCE_CAPACITY * 2]}
         castShadow={castMarcherShadows}
         frustumCulled={false}
       >
@@ -1772,7 +1793,7 @@ export default function Marchers({
       </instancedMesh>
       <instancedMesh
         ref={legsRef}
-        args={[undefined, undefined, count * 2]}
+        args={[undefined, undefined, INSTANCE_CAPACITY * 2]}
         castShadow={castMarcherShadows}
         frustumCulled={false}
       >
@@ -1781,7 +1802,7 @@ export default function Marchers({
       </instancedMesh>
       <instancedMesh
         ref={feetRef}
-        args={[undefined, undefined, count * 2]}
+        args={[undefined, undefined, INSTANCE_CAPACITY * 2]}
         castShadow={castMarcherShadows}
         frustumCulled={false}
       >
@@ -1792,7 +1813,7 @@ export default function Marchers({
       {/* Section instruments. These stay intentionally low-poly and instanced. */}
       <instancedMesh
         ref={fluteRef}
-        args={[undefined, undefined, count]}
+        args={[undefined, undefined, INSTANCE_CAPACITY]}
         castShadow={castMarcherShadows}
         frustumCulled={false}
       >
@@ -1806,7 +1827,7 @@ export default function Marchers({
       </instancedMesh>
       <instancedMesh
         ref={clarinetRef}
-        args={[undefined, undefined, count]}
+        args={[undefined, undefined, INSTANCE_CAPACITY]}
         castShadow={castMarcherShadows}
         frustumCulled={false}
       >
@@ -1820,7 +1841,7 @@ export default function Marchers({
       </instancedMesh>
       <instancedMesh
         ref={saxRef}
-        args={[undefined, undefined, count]}
+        args={[undefined, undefined, INSTANCE_CAPACITY]}
         castShadow={castMarcherShadows}
         frustumCulled={false}
       >
@@ -1834,7 +1855,7 @@ export default function Marchers({
       </instancedMesh>
       <instancedMesh
         ref={trumpetRef}
-        args={[undefined, undefined, count]}
+        args={[undefined, undefined, INSTANCE_CAPACITY]}
         castShadow={castMarcherShadows}
         frustumCulled={false}
       >
@@ -1848,7 +1869,7 @@ export default function Marchers({
       </instancedMesh>
       <instancedMesh
         ref={melloRef}
-        args={[undefined, undefined, count]}
+        args={[undefined, undefined, INSTANCE_CAPACITY]}
         castShadow={castMarcherShadows}
         frustumCulled={false}
       >
@@ -1862,7 +1883,7 @@ export default function Marchers({
       </instancedMesh>
       <instancedMesh
         ref={baritoneRef}
-        args={[undefined, undefined, count]}
+        args={[undefined, undefined, INSTANCE_CAPACITY]}
         castShadow={castMarcherShadows}
         frustumCulled={false}
       >
@@ -1876,7 +1897,7 @@ export default function Marchers({
       </instancedMesh>
       <instancedMesh
         ref={tromboneRef}
-        args={[undefined, undefined, count]}
+        args={[undefined, undefined, INSTANCE_CAPACITY]}
         castShadow={castMarcherShadows}
         frustumCulled={false}
       >
@@ -1890,7 +1911,7 @@ export default function Marchers({
       </instancedMesh>
       <instancedMesh
         ref={tubaRef}
-        args={[undefined, undefined, count]}
+        args={[undefined, undefined, INSTANCE_CAPACITY]}
         castShadow={castMarcherShadows}
         frustumCulled={false}
       >
@@ -1904,7 +1925,7 @@ export default function Marchers({
       </instancedMesh>
       <instancedMesh
         ref={snareRef}
-        args={[undefined, undefined, count]}
+        args={[undefined, undefined, INSTANCE_CAPACITY]}
         castShadow={castMarcherShadows}
         frustumCulled={false}
       >
@@ -1918,7 +1939,7 @@ export default function Marchers({
       </instancedMesh>
       <instancedMesh
         ref={tenorsRef}
-        args={[undefined, undefined, count]}
+        args={[undefined, undefined, INSTANCE_CAPACITY]}
         castShadow={castMarcherShadows}
         frustumCulled={false}
       >
@@ -1932,7 +1953,7 @@ export default function Marchers({
       </instancedMesh>
       <instancedMesh
         ref={bassDrumRef}
-        args={[undefined, undefined, count]}
+        args={[undefined, undefined, INSTANCE_CAPACITY]}
         castShadow={castMarcherShadows}
         frustumCulled={false}
       >
@@ -1946,7 +1967,7 @@ export default function Marchers({
       </instancedMesh>
       <instancedMesh
         ref={cymbalsRef}
-        args={[undefined, undefined, count]}
+        args={[undefined, undefined, INSTANCE_CAPACITY]}
         castShadow={castMarcherShadows}
         frustumCulled={false}
       >
@@ -1960,7 +1981,7 @@ export default function Marchers({
       </instancedMesh>
       <instancedMesh
         ref={tomsRef}
-        args={[undefined, undefined, count]}
+        args={[undefined, undefined, INSTANCE_CAPACITY]}
         castShadow={castMarcherShadows}
         frustumCulled={false}
       >
@@ -1974,7 +1995,7 @@ export default function Marchers({
       </instancedMesh>
       <instancedMesh
         ref={flagRef}
-        args={[undefined, undefined, count]}
+        args={[undefined, undefined, INSTANCE_CAPACITY]}
         castShadow={castMarcherShadows}
         frustumCulled={false}
       >
@@ -1988,7 +2009,7 @@ export default function Marchers({
       </instancedMesh>
       <instancedMesh
         ref={rifleRef}
-        args={[undefined, undefined, count]}
+        args={[undefined, undefined, INSTANCE_CAPACITY]}
         castShadow={castMarcherShadows}
         frustumCulled={false}
       >
