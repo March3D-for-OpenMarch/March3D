@@ -17,14 +17,15 @@
   "dependencies": {
     "@react-three/drei": "^10.7.8",
     "@react-three/fiber": "^9.7.0",
+    "electron-updater": "^6.6.2",
     "react-dom": "^19.2.8",
     "sql.js": "^1.13.0",
-    "three": "^0.179.1",
-    "electron-updater": "^6.6.2"
+    "three": "^0.179.1"
   },
   "devDependencies": {
     "@types/react": "^19.1.10",
     "@types/react-dom": "^19.1.7",
+    "@types/sql.js": "^1.4.11",
     "@types/three": "^0.179.0",
     "@vitejs/plugin-react": "^5.0.2",
     "concurrently": "^9.2.1",

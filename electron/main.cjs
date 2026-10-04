@@ -16,6 +16,11 @@ const syncClients = new Set();
 
 let lastResolvedDrill = null;
 const drillResolveCache = new Map();
+let latestSyncState = {
+  playing: false,
+  position: 0,
+  drillFile: null,
+};
 
 let updatePromptOpen = false;
 let updateRequestedByUser = false;
@@ -202,13 +207,40 @@ async function resolveDotsCandidate(value) {
 
 async function handleSyncMessage(message) {
   if (!message || typeof message !== "object") return;
+
+  if (message.type === "playback") {
+    latestSyncState.playing = !!message.playing;
+  } else if (message.type === "position") {
+    const position = Number(message.position);
+    if (Number.isFinite(position))
+      latestSyncState.position = Math.max(0, position);
+  }
+
   if (message.type !== "drill-file") {
     sendToRenderer("openmarch-sync", message);
     return;
   }
 
   const resolved = await resolveDotsCandidate(message.path || message.name);
-  if (!resolved || resolved === lastResolvedDrill) return;
+  if (!resolved) return;
+
+  latestSyncState.drillFile = {
+    path: resolved,
+    name: path.basename(resolved),
+  };
+
+  if (resolved === lastResolvedDrill) {
+    // The plugin may re-report the active drill when a Sync button is clicked.
+    // Forwarding the already-resolved path is cheap and lets the renderer
+    // immediately align its state without another filesystem search.
+    sendToRenderer("openmarch-sync", {
+      type: "drill-file",
+      path: resolved,
+      name: path.basename(resolved),
+    });
+    return;
+  }
+
   lastResolvedDrill = resolved;
   startFileWatcher(resolved);
   sendToRenderer("openmarch-sync", {
@@ -278,6 +310,8 @@ function startFileWatcher(filePath) {
     watcher.close();
     watcher = null;
   }
+  clearTimeout(watchTimer);
+  watchTimer = null;
   watchedFile = filePath;
 
   watcher = fs.watch(filePath, { persistent: false }, () => {
@@ -302,6 +336,37 @@ function websocketAccept(key) {
     .createHash("sha1")
     .update(key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11")
     .digest("base64");
+}
+
+function sendWebSocketText(socket, message) {
+  if (!socket || socket.destroyed) return false;
+  const payload = Buffer.from(JSON.stringify(message), "utf8");
+  let header;
+  if (payload.length < 126) {
+    header = Buffer.from([0x81, payload.length]);
+  } else if (payload.length < 65536) {
+    header = Buffer.alloc(4);
+    header[0] = 0x81;
+    header[1] = 126;
+    header.writeUInt16BE(payload.length, 2);
+  } else {
+    header = Buffer.alloc(10);
+    header[0] = 0x81;
+    header[1] = 127;
+    header.writeBigUInt64BE(BigInt(payload.length), 2);
+  }
+  try {
+    socket.write(Buffer.concat([header, payload]));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function requestOpenMarchState() {
+  for (const socket of syncClients) {
+    sendWebSocketText(socket, { type: "request-state" });
+  }
 }
 
 function parseWebSocketFrames(socket, buffer) {
@@ -410,6 +475,11 @@ function startSyncServer() {
     socket.on("close", () => {
       syncClients.delete(socket);
       if (syncClients.size === 0) {
+        latestSyncState = {
+          playing: false,
+          position: 0,
+          drillFile: null,
+        };
         sendToRenderer("openmarch-sync", {
           type: "connection",
           connected: false,
@@ -483,6 +553,23 @@ ipcMain.on("devtools:inspect-element", (_event, { x, y }) => {
   });
 
   mainWindow.webContents.inspectElement(x, y);
+});
+
+ipcMain.handle("sync:probe", async () => {
+  const connected = syncClients.size > 0;
+  if (connected) {
+    requestOpenMarchState();
+    // Give the plugin one event-loop turn to report its current drill/clock.
+    // The plugin already sends absolute file paths, so this stays fast even
+    // when the user's Documents folder is large.
+    await new Promise((resolve) => setTimeout(resolve, 150));
+  }
+  return {
+    connected: syncClients.size > 0,
+    playing: latestSyncState.playing,
+    position: latestSyncState.position,
+    drillFile: latestSyncState.drillFile,
+  };
 });
 
 ipcMain.handle("dots:open-synced", async () => {

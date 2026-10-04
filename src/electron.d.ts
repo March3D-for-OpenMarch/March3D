@@ -13,6 +13,12 @@ declare global {
       inspectElement: (x: number, y: number) => void;
       openDotsFile: () => Promise<{ path: string; name: string } | null>;
       openSyncedDotsFile: () => Promise<{ path: string; name: string } | null>;
+      probeOpenMarchSync: () => Promise<{
+        connected: boolean;
+        playing: boolean;
+        position: number;
+        drillFile: { path: string; name: string } | null;
+      }>;
       readFile: (path: string) => Promise<Uint8Array>;
       readEmbeddedAudio: (path: string) => Promise<{
         path: string;
@@ -37,9 +43,9 @@ declare global {
 
   type OpenMarchSyncMessage =
     | { type: "connection"; connected: boolean }
-    | { type: "playback"; playing: boolean }
-    | { type: "position"; position: number }
-    | { type: "drill-file"; path: string; name?: string }
+    | { type: "playback"; playing: boolean; generation?: number }
+    | { type: "position"; position: number; generation?: number }
+    | { type: "drill-file"; path: string; name?: string; generation?: number }
     | { type: "page"; pageIndex: number }
     | {
         type: "positions";

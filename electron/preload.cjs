@@ -17,6 +17,7 @@ contextBridge.exposeInMainWorld("march3d", {
   },
   openDotsFile: () => ipcRenderer.invoke("dots:open"),
   openSyncedDotsFile: () => ipcRenderer.invoke("dots:open-synced"),
+  probeOpenMarchSync: () => ipcRenderer.invoke("sync:probe"),
   readFile: (filePath) => ipcRenderer.invoke("file:read", filePath),
   readEmbeddedAudio: (filePath) =>
     ipcRenderer.invoke("audio:read-embedded", filePath),

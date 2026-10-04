@@ -1,4 +1,5 @@
 import {
+  startTransition,
   useCallback,
   useEffect,
   useMemo,
@@ -7,7 +8,7 @@ import {
   type MutableRefObject,
 } from "react";
 import Scene from "./viewer/Scene";
-import { parseDots, type Drill } from "./lib/dots";
+import { type Drill } from "./lib/dots";
 import logoUrl from "./assets/March3D-clear.png";
 import * as THREE from "three";
 
@@ -306,6 +307,11 @@ function PlaybackRibbon({
 
 export default function App() {
   const [drill, setDrill] = useState<Drill | null>(null);
+  const drillRef = useRef<Drill | null>(null);
+
+  useEffect(() => {
+    drillRef.current = drill;
+  }, [drill]);
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const menuRef = useRef<HTMLElement | null>(null);
   const [developerMode, setDeveloperMode] = useState(
@@ -347,6 +353,10 @@ export default function App() {
   );
   const refreshingDotsRef = useRef(false);
   const autoOpeningPathRef = useRef<string | null>(null);
+  const loadGenerationRef = useRef(0);
+  const parserWorkerRef = useRef<Worker | null>(null);
+  const parserRejectRef = useRef<((error: Error) => void) | null>(null);
+  const fileSwitchingRef = useRef(false);
   // playheadRef is the *visual* timeline used by the 3D scene.  We keep it
   // continuous and gently steer it toward the authoritative audio/OpenMarch
   // clock instead of replacing it every time a clock sample arrives.  That
@@ -374,6 +384,23 @@ export default function App() {
       setIsMaximized(maximized);
     });
   }, []);
+
+  useEffect(() => {
+    return () => {
+      loadGenerationRef.current++;
+      parserRejectRef.current = null;
+      parserWorkerRef.current?.terminate();
+      parserWorkerRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!fileSwitchingRef.current) return;
+    const frame = requestAnimationFrame(() => {
+      fileSwitchingRef.current = false;
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [sourcePath]);
 
   // Close the custom menu when the user clicks elsewhere or presses Escape.
   useEffect(() => {
@@ -508,6 +535,68 @@ export default function App() {
     [embeddedAudioUrl, externalAudio],
   );
 
+  const parseDotsOffThread = useCallback(
+    (
+      buffer: ArrayBuffer,
+      sourceName: string,
+      includeAudioData: boolean,
+    ): Promise<Drill> => {
+      if (parserRejectRef.current) {
+        parserRejectRef.current(
+          new Error("Parsing superseded by a newer file load."),
+        );
+        parserRejectRef.current = null;
+      }
+      parserWorkerRef.current?.terminate();
+
+      const worker = new Worker(
+        new URL("./lib/dots.worker.ts", import.meta.url),
+        { type: "module" },
+      );
+      parserWorkerRef.current = worker;
+
+      return new Promise((resolve, reject) => {
+        let settled = false;
+
+        parserRejectRef.current = reject;
+
+        const cleanup = () => {
+          if (parserRejectRef.current === reject) {
+            parserRejectRef.current = null;
+          }
+          if (parserWorkerRef.current === worker) {
+            parserWorkerRef.current = null;
+          }
+          worker.terminate();
+        };
+
+        worker.onmessage = (
+          event: MessageEvent<{ ok: boolean; drill?: Drill; error?: string }>,
+        ) => {
+          if (settled) return;
+          settled = true;
+          cleanup();
+
+          if (event.data.ok && event.data.drill) {
+            resolve(event.data.drill);
+          } else {
+            reject(new Error(event.data.error || "Could not read .dots file."));
+          }
+        };
+
+        worker.onerror = (event) => {
+          if (settled) return;
+          settled = true;
+          cleanup();
+          reject(new Error(event.message || "The .dots parser worker failed."));
+        };
+
+        worker.postMessage({ buffer, sourceName, includeAudioData }, [buffer]);
+      });
+    },
+    [],
+  );
+
   const loadBuffer = useCallback(
     async (
       buffer: ArrayBuffer | Uint8Array,
@@ -516,59 +605,95 @@ export default function App() {
       preservePosition = false,
       includeAudioData = true,
       reuseExistingAudio = !includeAudioData,
+      resetTransport = !preservePosition,
     ) => {
       setError("");
+      const generation = ++loadGenerationRef.current;
       const preservedTime = playheadRef.current;
+      const inputBuffer =
+        buffer instanceof Uint8Array
+          ? (buffer.buffer.slice(
+              buffer.byteOffset,
+              buffer.byteOffset + buffer.byteLength,
+            ) as ArrayBuffer)
+          : buffer;
+
       try {
-        const parsed = await parseDots(
-          buffer instanceof Uint8Array
-            ? (buffer.buffer.slice(
-                buffer.byteOffset,
-                buffer.byteOffset + buffer.byteLength,
-              ) as ArrayBuffer)
-            : buffer,
+        const parsed = await parseDotsOffThread(
+          inputBuffer,
           sourceName,
           includeAudioData,
         );
-        setDrill((current) =>
+
+        // A newer open/switch won while this file was parsing. Never let an
+        // older worker result replace the current drill.
+        if (generation !== loadGenerationRef.current) return false;
+
+        const nextDrill =
           includeAudioData || parsed.audio || !reuseExistingAudio
             ? parsed
-            : { ...parsed, audio: current?.audio ?? null },
-        );
-        // Hundreds of DOM-backed labels can overwhelm Chromium before the 3D
-        // renderer even starts. Keep labels automatic for normal ensembles and
-        // start large files in the fast instanced-rendering path.
-        setLabels(parsed.marchers.length <= 180);
-        if (preservePosition) {
-          playheadRef.current = preservedTime;
-          setPlayhead(preservedTime);
-        } else {
-          setPageIndex(0);
-          playheadRef.current = 0;
-          setPlayhead(0);
+            : { ...parsed, audio: drillRef.current?.audio ?? null };
+
+        if (resetTransport) {
+          fileSwitchingRef.current = true;
           playingRef.current = false;
           setPlaying(false);
+          playheadRef.current = 0;
+          setPlayhead(0);
+          setPageIndex(0);
+          audioRef.current?.pause();
+          standaloneAudioStartedRef.current = false;
           standaloneAnchorRef.current = {
             position: 0,
             startedAt: performance.now(),
           };
-          standaloneAudioStartedRef.current = false;
-          if (audioRef.current) {
-            audioRef.current.pause();
-            audioRef.current.currentTime = Math.max(
-              0,
-              -(parsed.audioOffsetSeconds || 0),
-            );
-          }
-          setLoadVersion((v) => v + 1);
+        } else if (preservePosition) {
+          playheadRef.current = preservedTime;
+          setPlayhead(preservedTime);
         }
-        setSourcePath(path ?? null);
+
+        // Let the browser paint the transport reset before React/Three rebuilds
+        // the marcher scene. This removes the long frozen frame at file swaps.
+        await new Promise<void>((resolve) =>
+          requestAnimationFrame(() => resolve()),
+        );
+
+        if (generation !== loadGenerationRef.current) return false;
+
+        startTransition(() => {
+          setDrill(nextDrill);
+          setLabels(nextDrill.marchers.length <= 180);
+          setSourcePath(path ?? null);
+          setLoadVersion((v) => v + 1);
+        });
+
+        if (resetTransport) {
+          // Keep the transport locked at zero through the first two paint
+          // opportunities. OpenMarch can emit position/playback packets while
+          // React is committing the new scene; accepting those packets here is
+          // what previously made a newly opened drill jump to a stale/random
+          // position.
+          await new Promise<void>((resolve) =>
+            requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+          );
+          if (generation === loadGenerationRef.current) {
+            playheadRef.current = 0;
+            setPlayhead(0);
+            setPageIndex(0);
+            fileSwitchingRef.current = false;
+          }
+        }
+
+        return true;
       } catch (e) {
+        if (generation !== loadGenerationRef.current) return false;
         console.error(e);
+        fileSwitchingRef.current = false;
         setError(e instanceof Error ? e.message : "Could not read .dots file.");
+        return false;
       }
     },
-    [],
+    [parseDotsOffThread],
   );
 
   async function openFile(file?: File) {
@@ -905,6 +1030,11 @@ export default function App() {
         if (!path || path === sourcePath || autoOpeningPathRef.current === path)
           return;
         autoOpeningPathRef.current = path;
+        fileSwitchingRef.current = true;
+        playingRef.current = false;
+        setPlaying(false);
+        playheadRef.current = 0;
+        setPlayhead(0);
         void (async () => {
           try {
             // Let the current frame paint before starting a show switch. More
@@ -1008,7 +1138,7 @@ export default function App() {
         // latest OpenMarch playback state. Only apply it to March3D while Sync
         // is enabled.
         lastOmPlayingRef.current = !!message.playing;
-        if (!syncEnabledRef.current) return;
+        if (!syncEnabledRef.current || fileSwitchingRef.current) return;
 
         playingRef.current = !!message.playing;
         setPlaying(!!message.playing);

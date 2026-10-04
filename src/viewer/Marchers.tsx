@@ -151,15 +151,15 @@ function instrumentGeometry(kind: InstrumentKind, sectionName = "") {
       return mergeParts([
         transformed(
           new THREE.CylinderGeometry(0.04, 0.04, 1.75, 8),
-          T(-0.18, 0.6, 0.35)
+          T(-0.18, 0.6, 0.35),
         ),
         transformed(
           new THREE.CylinderGeometry(0.035, 0.035, 0.12, 8),
           T(-0.2, 0, 0.37),
         ),
         transformed(
-          new THREE.CylinderGeometry(0.042, 0.042, 0.04, 8), 
-          T(-0.18, -0.24, 0.35)
+          new THREE.CylinderGeometry(0.042, 0.042, 0.04, 8),
+          T(-0.18, -0.24, 0.35),
         ),
       ]);
     case "clarinet":
@@ -168,9 +168,7 @@ function instrumentGeometry(kind: InstrumentKind, sectionName = "") {
           new THREE.CylinderGeometry(0.04, 0.06, 1.25, 8),
           T(0, -0.1, 0.08),
         ),
-        transformed(
-          new THREE.ConeGeometry(0.11, 0.28, 10), 
-          T(0, -0.6, 0.08)),
+        transformed(new THREE.ConeGeometry(0.11, 0.28, 10), T(0, -0.6, 0.08)),
         transformed(
           new THREE.CylinderGeometry(0.03, 0.045, 0.22, 8),
           T(0, 0.62, 0.08),
@@ -184,7 +182,7 @@ function instrumentGeometry(kind: InstrumentKind, sectionName = "") {
         ),
         transformed(
           new THREE.TorusGeometry(0.12, 0.09, 7, 12, Math.PI * 0.9),
-          M(T(0, -0.28, -0.17), RX(2.9), RY(Math.PI* 3 / 2)),
+          M(T(0, -0.28, -0.17), RX(2.9), RY((Math.PI * 3) / 2)),
         ),
         transformed(
           new THREE.ConeGeometry(0.13, 0.35, 10),
@@ -343,11 +341,11 @@ function instrumentGeometry(kind: InstrumentKind, sectionName = "") {
         ),
         transformed(
           new THREE.CylinderGeometry(0.028, 0.028, 0.3, 8),
-          M(T(-0.15, 0.2, 0.175), RX(Math.PI / 2), RZ(Math.PI * 2 / 3)),
+          M(T(-0.15, 0.2, 0.175), RX(Math.PI / 2), RZ((Math.PI * 2) / 3)),
         ),
         transformed(
           new THREE.CylinderGeometry(0.028, 0.028, 0.3, 8),
-          M(T(-0.15, -0.25, 0.175), RX(Math.PI / 2), RZ(Math.PI * 2 / 3)),
+          M(T(-0.15, -0.25, 0.175), RX(Math.PI / 2), RZ((Math.PI * 2) / 3)),
         ),
         transformed(
           new THREE.CylinderGeometry(0.028, 0.028, 0.3, 8),
@@ -551,10 +549,7 @@ function instrumentGeometry(kind: InstrumentKind, sectionName = "") {
         drums.push([0.0, -0.35, 0, 0.206]);
       }
       if (/tenor|tenors|sextet|sextets/.test(name)) {
-        drums.push(
-          [0.25, -0.35, 0.02, 0.206],
-          [-0.24, -0.35, 0.04, 0.274],
-        );
+        drums.push([0.25, -0.35, 0.02, 0.206], [-0.24, -0.35, 0.04, 0.274]);
       }
       for (const [x, y, z, r] of drums)
         parts.push(
@@ -674,7 +669,8 @@ function instrumentForSection(
   if (/baritone|euphonium/.test(name)) return "baritone";
   if (/tuba|sousaphone/.test(name)) return "tuba";
   if (/(^|\b)(snare|snares)(\b|$)/.test(name)) return "snare";
-  if (/tenor|tenors|quad|quads|quint|quints|sextet|sextets/.test(name)) return "tenors";
+  if (/tenor|tenors|quad|quads|quint|quints|sextet|sextets/.test(name))
+    return "tenors";
   if (/bass drum|bass drums/.test(name)) return "bass";
   if (/cymbal|cymbals/.test(name)) return "cymbals";
   if (/tom|toms|flub|flub drum|flub drums/.test(name)) return "toms";
@@ -757,6 +753,7 @@ export default function Marchers({
   const lastRenderedTimeRef = useRef(Number.NaN);
 
   const prepared = useMemo(() => {
+    if (drill.preparedPositions) return drill.preparedPositions;
     const appearance = new Map(drill.appearances.map((a) => [a.section, a]));
     const marcherIndex = new Map(drill.marchers.map((m, i) => [m.id, i]));
     const pageIndex = new Map(drill.pages.map((p, i) => [p.id, i]));
@@ -857,9 +854,16 @@ export default function Marchers({
   const tromboneGeometry = useMemo(() => instrumentGeometry("trombone"), []);
   const tubaGeometry = useMemo(() => instrumentGeometry("tuba"), []);
   const snareGeometry = useMemo(() => instrumentGeometry("snare"), []);
-  const tenorsGeometry = useMemo(() => instrumentGeometry("tenors", 
-  drill.marchers.find((marcher) => instrumentForSection(marcher.section) === "tenors",)?.section)
-  , [drill.marchers]);
+  const tenorsGeometry = useMemo(
+    () =>
+      instrumentGeometry(
+        "tenors",
+        drill.marchers.find(
+          (marcher) => instrumentForSection(marcher.section) === "tenors",
+        )?.section,
+      ),
+    [drill.marchers],
+  );
   const bassGeometry = useMemo(() => instrumentGeometry("bass"), []);
   const cymbalsGeometry = useMemo(() => instrumentGeometry("cymbals"), []);
   const tomsGeometry = useMemo(() => instrumentGeometry("toms"), []);
@@ -1181,11 +1185,11 @@ export default function Marchers({
       const playingArmAngle =
         instrument === "clarinet" || instrument === "sax"
           ? THREE.MathUtils.degToRad(-36)
-        : instrument === "baritone" || instrument === "trombone"
-          ? THREE.MathUtils.degToRad(-48)
-        : instrument === "tuba"
-          ? THREE.MathUtils.degToRad(-34)
-        : THREE.MathUtils.degToRad(-58);
+          : instrument === "baritone" || instrument === "trombone"
+            ? THREE.MathUtils.degToRad(-48)
+            : instrument === "tuba"
+              ? THREE.MathUtils.degToRad(-34)
+              : THREE.MathUtils.degToRad(-58);
       const armAngle = hasWindInstrument
         ? playingArmAngle
         : oppositeSwing * THREE.MathUtils.degToRad(20) * armScale;
@@ -1400,7 +1404,7 @@ export default function Marchers({
             if (left) {
               ex = -0.48;
               ey = 2.12;
-              ez = -0.3
+              ez = -0.3;
               hx = -0.23;
               hy = 2.1;
               hz = -0.82;
@@ -1434,7 +1438,7 @@ export default function Marchers({
             if (left) {
               ex = -0.48;
               ey = 2.12;
-              ez = -0.3
+              ez = -0.3;
               hx = -0.23;
               hy = 2.0;
               hz = -0.82;

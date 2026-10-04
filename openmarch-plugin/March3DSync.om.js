@@ -15,6 +15,9 @@ async function March3DSync() {
   let lastPosition = null;
   let lastPositionAt = 0;
   let lastDrillCandidate = null;
+  let clockElement = null;
+  let nextClockLookupAt = 0;
+  let drillGeneration = 0;
 
   function send(message) {
     if (socket && socket.readyState === WebSocket.OPEN) {
@@ -94,10 +97,12 @@ async function March3DSync() {
     if (!candidate) return;
     if (!force && candidate === lastDrillCandidate) return;
     lastDrillCandidate = candidate;
+    drillGeneration += 1;
     send({
       type: "drill-file",
       path: candidate,
       name: candidate.split(/[\\/]/).pop(),
+      generation: drillGeneration,
     });
   }
 
@@ -116,33 +121,44 @@ async function March3DSync() {
 
   function findOpenMarchClock() {
     try {
+      if (clockElement?.isConnected) {
+        const value = parseClockText(clockElement.textContent || "");
+        if (value != null) return value;
+      }
+
+      const now = performance.now();
+      if (now < nextClockLookupAt) return null;
+      nextClockLookupAt = now + 1000;
+
       // OpenMarch's AudioClock currently renders its live value in a
-      // `font-mono text-xs` span. Prefer that exact presentation before
-      // falling back to visible text-node scanning for compatibility.
-      const preferred = document.querySelectorAll(
+      // `font-mono text-xs` span. Find it at most once per second, then reuse
+      // the element for every 20 Hz sample. This avoids repeatedly traversing
+      // OpenMarch's entire React DOM while it is rendering a large show.
+      const preferred = document.querySelector(
         "span.font-mono.text-xs, span.font-mono",
       );
-      for (const element of preferred) {
+      if (preferred) {
+        const value = parseClockText(preferred.textContent || "");
+        if (value != null) {
+          clockElement = preferred;
+          return value;
+        }
+      }
+
+      // Compatibility fallback for older OpenMarch builds. It is deliberately
+      // throttled because this selector can still walk a substantial DOM.
+      const candidates = document.querySelectorAll("span, div, button");
+      let visited = 0;
+      for (const element of candidates) {
+        if (visited++ >= 250) break;
+        if (element.children.length > 0) continue;
         const value = parseClockText(element.textContent || "");
         if (value == null) continue;
         const rect = element.getBoundingClientRect();
-        if (rect.width > 0 && rect.height > 0) return value;
-      }
-
-      const root = document.body;
-      if (!root) return null;
-      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-      let node;
-      let visited = 0;
-      while ((node = walker.nextNode()) && visited++ < 3000) {
-        const text = node.nodeValue?.trim();
-        const value = parseClockText(text || "");
-        if (value == null) continue;
-        const element = node.parentElement;
-        if (!element) continue;
-        const rect = element.getBoundingClientRect();
-        if (rect.width === 0 || rect.height === 0) continue;
-        return value;
+        if (rect.width > 0 && rect.height > 0) {
+          clockElement = element;
+          return value;
+        }
       }
     } catch {}
     return null;
@@ -168,21 +184,32 @@ async function March3DSync() {
 
     if (advancing !== playing) {
       playing = advancing;
-      send({ type: "playback", playing });
+      send({ type: "playback", playing, generation: drillGeneration });
     }
 
     lastPosition = position;
     lastPositionAt = now;
-    send({ type: "position", position });
+    send({ type: "position", position, generation: drillGeneration });
   }
 
   function connect() {
     try {
       socket = new WebSocket("ws://127.0.0.1:27831");
       socket.onopen = () => {
-        send({ type: "playback", playing: false });
+        send({ type: "playback", playing: false, generation: drillGeneration });
         sendActiveDrill(true);
         pollPlayback();
+      };
+      socket.onmessage = (event) => {
+        try {
+          const message = JSON.parse(event.data);
+          if (message?.type === "request-state") {
+            lastPosition = null;
+            lastPositionAt = 0;
+            sendActiveDrill(true);
+            pollPlayback();
+          }
+        } catch {}
       };
       socket.onclose = () => {
         socket = null;

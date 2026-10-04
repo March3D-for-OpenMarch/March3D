@@ -63,6 +63,14 @@ export type AudioTrack = {
   data: Uint8Array;
 };
 
+export type PreparedPosition = {
+  x: number;
+  z: number;
+  rotation: number;
+  visible: boolean;
+  color: string;
+};
+
 export type Drill = {
   audio?: AudioTrack | null;
   audioOffsetSeconds: number;
@@ -74,6 +82,7 @@ export type Drill = {
   field: Field;
   appearances: SectionAppearance[];
   sourceName: string;
+  preparedPositions?: Array<Array<PreparedPosition | undefined>>;
 };
 
 // sql.js/WASM initialization is expensive and was being repeated every time
@@ -86,6 +95,68 @@ function rows(db: any, sql: string): any[] {
   return result.values.map((r: any[]) =>
     Object.fromEntries(result.columns.map((c: string, i: number) => [c, r[i]])),
   );
+}
+
+export function prepareDrillPositions(
+  drill: Drill,
+): Array<Array<PreparedPosition | undefined>> {
+  const appearance = new Map(drill.appearances.map((a) => [a.section, a]));
+  const marcherIndex = new Map(drill.marchers.map((m, i) => [m.id, i]));
+  const pageIndex = new Map(drill.pages.map((p, i) => [p.id, i]));
+  const table: Array<Array<PreparedPosition | undefined>> = drill.pages.map(
+    () => new Array(drill.marchers.length),
+  );
+
+  const stepSizeInches = drill.field.stepSizeInches || 22.5;
+  const widthPixels = drill.field.width || 1800;
+  const heightPixels = drill.field.height || 960;
+  const feetPerStep = stepSizeInches / 12;
+  const xCheckpointSteps = (drill.field.xCheckpoints ?? [])
+    .map((checkpoint) => Number(checkpoint.stepsFromCenterFront))
+    .filter(Number.isFinite);
+  const xStepSpan =
+    xCheckpointSteps.length >= 2
+      ? Math.max(...xCheckpointSteps) - Math.min(...xCheckpointSteps)
+      : 160;
+  const yCheckpointSteps = (drill.field.yCheckpoints ?? [])
+    .map((checkpoint) => Number(checkpoint.stepsFromCenterFront))
+    .filter(Number.isFinite);
+  const yStepSpan =
+    yCheckpointSteps.length >= 2
+      ? Math.max(...yCheckpointSteps) - Math.min(...yCheckpointSteps)
+      : 85.333333;
+  const feetPerPixelX = (xStepSpan * feetPerStep) / widthPixels;
+  const feetPerPixelY = (yStepSpan * feetPerStep) / heightPixels;
+  const centerX = drill.field.centerFrontPoint?.xPixels ?? widthPixels / 2;
+  const frontY = drill.field.centerFrontPoint?.yPixels ?? heightPixels;
+
+  for (const p of drill.positions) {
+    const mi = marcherIndex.get(p.marcherId);
+    const pi = pageIndex.get(p.pageId);
+    if (mi === undefined || pi === undefined) continue;
+    const m = drill.marchers[mi];
+    table[pi][mi] = {
+      x: -(p.x - centerX) * feetPerPixelX,
+      z: -160 / 2 + (frontY - p.y) * feetPerPixelY,
+      rotation: p.rotation || 0,
+      visible: p.visible !== false,
+      color: parseColor(
+        p.fillColor ?? appearance.get(m.section)?.fillColor,
+        "#ff3333",
+      ),
+    };
+  }
+
+  return table;
+}
+
+function parseColor(value: string | null | undefined, fallback: string) {
+  if (!value) return fallback;
+  const match = value.match(/rgba?\(([^)]+)\)/);
+  if (!match) return value;
+  const parts = match[1].split(",").map(Number);
+  if (parts.some((part) => Number.isNaN(part))) return fallback;
+  return `rgb(${parts[0]},${parts[1]},${parts[2]})`;
 }
 
 export async function parseDots(
