@@ -1,7 +1,7 @@
 import { Text, useTexture } from "@react-three/drei";
 import { useMemo } from "react";
 import * as THREE from "three";
-import logoUrl from "../assets/March3D-clear.png";
+import logoUrl from "../assets/March3D-clear-BLUE.png";
 import type { Drill } from "../lib/dots";
 
 const FIELD_LENGTH = 360;
