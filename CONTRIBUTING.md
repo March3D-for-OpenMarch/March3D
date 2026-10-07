@@ -7,7 +7,7 @@ Thanks for your interest in contributing to March3D!
 1. Fork the March3D repository.
 2. Clone your fork:
 
-   git clone https://github.com/YOUR-USERNAME/March3D.git
+   git clone https://github.com/March3D-for-OpenMarch/March3D.git
 
 3. Enter the project:
 
