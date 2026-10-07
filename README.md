@@ -63,7 +63,7 @@ End users do **not** need Node.js or npm.
 Clone the repository:
 
 ```bash
-git clone https://github.com/theeuphoniumking/March3D
+git clone https://github.com/March3D-for-OpenMarch/March3D
 cd March3D
 ```
 
