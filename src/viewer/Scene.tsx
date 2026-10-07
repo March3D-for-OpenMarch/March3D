@@ -3,7 +3,7 @@ import { OrbitControls, PerspectiveCamera } from "@react-three/drei";
 import { memo, useEffect, useRef, type MutableRefObject } from "react";
 import * as THREE from "three";
 import Field from "./Field";
-import Marchers from "./Marchers";
+import Marchers, { type TubaModel } from "./Marchers";
 import type { Drill } from "../lib/dots";
 
 function CameraController({ resetToken }: { resetToken: string }) {
@@ -40,12 +40,16 @@ function Scene({
   pageTimes,
   playheadRef,
   resetToken,
+  forceMarcherRedraw,
+  tubaModel,
 }: {
   drill: Drill;
   labels: boolean;
   pageTimes?: number[];
   playheadRef: MutableRefObject<number>;
   resetToken: string;
+  forceMarcherRedraw: boolean;
+  tubaModel: TubaModel;
 }) {
   const largeBand = drill.marchers.length > 160;
   return (
@@ -78,6 +82,8 @@ function Scene({
         labels={labels}
         pageTimes={pageTimes}
         playheadRef={playheadRef}
+        forceMarcherRedraw={forceMarcherRedraw}
+        tubaModel={tubaModel}
       />
       <CameraController resetToken={resetToken} />
     </Canvas>

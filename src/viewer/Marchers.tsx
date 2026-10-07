@@ -12,11 +12,10 @@ const LABEL_PERFORMANCE_LIMIT = 180;
 // Keep one stable InstancedMesh allocation across drill switches. Reusing the
 // GPU buffers avoids temporarily holding two complete marcher scenes in memory
 // while React replaces the old drill with the new one.
+const INSTANCE_CAPACITY = 1024;
 const LEG_LENGTH = 1.35;
 const UPPER_ARM_LENGTH = 0.72;
 const FOREARM_LENGTH = 0.68;
-// For development when changing marcher textures so each frame redraws every marcher. Disable for optimization
-const FORCE_MARCHER_REDRAW = false;
 // Keep the performer soles just above the painted field surface.
 const PERFORMER_GROUND_LIFT = 0.48;
 
@@ -77,6 +76,8 @@ function positionToField(p: Position, drill: Drill) {
     z: -FIELD_WIDTH_FEET / 2 + (frontY - p.y) * feetPerPixelY,
   };
 }
+
+export type TubaModel = "sousaphone" | "contrabassBugle";
 
 type InstrumentKind =
   | "none"
@@ -140,7 +141,11 @@ function plumeGeometry() {
   return mergeParts(parts);
 }
 
-function instrumentGeometry(kind: InstrumentKind, sectionName = "") {
+function instrumentGeometry(
+  kind: InstrumentKind,
+  sectionName = "",
+  tubaModel: TubaModel = "sousaphone",
+) {
   const T = (x: number, y: number, z: number) =>
     new THREE.Matrix4().makeTranslation(x, y, z);
   const RX = (r: number) => new THREE.Matrix4().makeRotationX(r);
@@ -441,6 +446,83 @@ function instrumentGeometry(kind: InstrumentKind, sectionName = "") {
         ),
       ]);
     case "tuba": {
+      if (tubaModel === "contrabassBugle") {
+        // Compact marching contrabass bugle: a large front-facing wrap of
+        // tubing with a tall leadpipe and forward bell. Keep it low-poly
+        // because this geometry is instanced for every tuba player.
+        const bodyCurve = new THREE.CatmullRomCurve3(
+          [
+            new THREE.Vector3(-0.28, 0.5, -0.34),
+            new THREE.Vector3(-0.58, 0.18, -0.48),
+            new THREE.Vector3(-0.48, -0.38, -0.5),
+            new THREE.Vector3(0.28, -0.42, -0.5),
+            new THREE.Vector3(0.55, -0.08, -0.42),
+            new THREE.Vector3(0.42, 0.35, -0.34),
+            new THREE.Vector3(0.08, 0.5, -0.32),
+          ],
+          false,
+          "catmullrom",
+          0.5,
+        );
+        const body = new THREE.TubeGeometry(bodyCurve, 28, 0.075, 8, false);
+
+        const leadpipeCurve = new THREE.CatmullRomCurve3(
+          [
+            new THREE.Vector3(0.08, 0.48, -0.32),
+            new THREE.Vector3(0.18, 0.72, -0.34),
+            new THREE.Vector3(0.34, 0.92, -0.43),
+            new THREE.Vector3(0.38, 1.15, -0.58),
+            new THREE.Vector3(0.38, 1.28, -0.72),
+          ],
+          false,
+          "catmullrom",
+          0.5,
+        );
+        const leadpipe = new THREE.TubeGeometry(
+          leadpipeCurve,
+          18,
+          0.08,
+          8,
+          false,
+        );
+
+        const bell = transformed(
+          new THREE.CylinderGeometry(0.48, 0.12, 0.68, 18, 1, true),
+          M(T(0.38, 1.28, -1.0), RX(-Math.PI / 2)),
+        );
+        const bellRim = transformed(
+          new THREE.TorusGeometry(0.48, 0.032, 8, 22),
+          T(0.38, 1.28, -1.34),
+        );
+
+        return mergeParts([
+          body,
+          leadpipe,
+          bell,
+          bellRim,
+          transformed(
+            new THREE.BoxGeometry(0.28, 0.3, 0.2),
+            T(-0.02, 0.18, -0.42),
+          ),
+          transformed(
+            new THREE.CylinderGeometry(0.022, 0.022, 0.24, 7),
+            T(-0.1, 0.34, -0.43),
+          ),
+          transformed(
+            new THREE.CylinderGeometry(0.022, 0.022, 0.24, 7),
+            T(-0.02, 0.34, -0.43),
+          ),
+          transformed(
+            new THREE.CylinderGeometry(0.022, 0.022, 0.24, 7),
+            T(0.06, 0.34, -0.43),
+          ),
+          transformed(
+            new THREE.TorusGeometry(0.16, 0.028, 7, 14, Math.PI * 1.35),
+            M(T(-0.02, 0.34, -0.4), RZ(0.35)),
+          ),
+        ]);
+      }
+
       // Sousaphone body shaped like a diagonal sash around the performer:
       // high on the left shoulder, low on the right hip, with the tube
       // continuing behind the torso to complete the wrap. Local -Z is front.
@@ -721,18 +803,16 @@ export default function Marchers({
   labels,
   pageTimes = [],
   playheadRef,
+  forceMarcherRedraw,
+  tubaModel = "sousaphone",
 }: {
   drill: Drill;
   labels: boolean;
   pageTimes?: number[];
   playheadRef: MutableRefObject<number>;
+  forceMarcherRedraw?: boolean;
+  tubaModel?: TubaModel;
 }) {
-  // Allocate exactly what this drill needs. A fixed 1024-instance buffer can
-  // waste GPU memory on small files and is unsafe for files with more than
-  // 1024 marchers.
-  const instanceCapacity = Math.max(1, drill.marchers.length);
-  const limbInstanceCapacity = instanceCapacity * 2;
-
   const torsoRef = useRef<THREE.InstancedMesh>(null);
   const headRef = useRef<THREE.InstancedMesh>(null);
   const shakoRef = useRef<THREE.InstancedMesh>(null);
@@ -861,7 +941,10 @@ export default function Marchers({
   const melloGeometry = useMemo(() => instrumentGeometry("mello"), []);
   const baritoneGeometry = useMemo(() => instrumentGeometry("baritone"), []);
   const tromboneGeometry = useMemo(() => instrumentGeometry("trombone"), []);
-  const tubaGeometry = useMemo(() => instrumentGeometry("tuba"), []);
+  const tubaGeometry = useMemo(
+    () => instrumentGeometry("tuba", "", tubaModel),
+    [tubaModel],
+  );
   const snareGeometry = useMemo(() => instrumentGeometry("snare"), []);
   const tenorsGeometry = useMemo(
     () =>
@@ -993,7 +1076,7 @@ export default function Marchers({
 
     const time = Math.max(0, playheadRef.current || 0);
     if (
-      !FORCE_MARCHER_REDRAW &&
+      !forceMarcherRedraw &&
       Math.abs(time - lastRenderedTimeRef.current) < 0.000001
     )
       return;
@@ -1642,9 +1725,11 @@ export default function Marchers({
           t2.makeRotationX(-Math.PI / 2);
           multiplyParts(result, root, t1, t2);
         } else if (instrument === "tuba") {
-          // Geometry origin is centered on the torso; the sash itself runs
-          // left-shoulder -> right-hip and the bell rises above the left shoulder.
-          t1.makeTranslation(0.0, 2.1, -0.01);
+          if (tubaModel === "contrabassBugle") {
+            t1.makeTranslation(0.0, 2.05, -0.08);
+          } else {
+            t1.makeTranslation(0.0, 2.1, -0.01);
+          }
           t2.identity();
           multiplyParts(result, root, t1, t2);
         } else if (instrument === "snare") {
@@ -1735,7 +1820,7 @@ export default function Marchers({
     <group>
       <instancedMesh
         ref={torsoRef}
-        args={[undefined, undefined, instanceCapacity]}
+        args={[undefined, undefined, INSTANCE_CAPACITY]}
         castShadow={castMarcherShadows}
         frustumCulled={false}
       >
@@ -1744,7 +1829,7 @@ export default function Marchers({
       </instancedMesh>
       <instancedMesh
         ref={headRef}
-        args={[undefined, undefined, instanceCapacity]}
+        args={[undefined, undefined, INSTANCE_CAPACITY]}
         castShadow={castMarcherShadows}
         frustumCulled={false}
       >
@@ -1753,7 +1838,7 @@ export default function Marchers({
       </instancedMesh>
       <instancedMesh
         ref={shakoRef}
-        args={[undefined, undefined, instanceCapacity]}
+        args={[undefined, undefined, INSTANCE_CAPACITY]}
         castShadow={castMarcherShadows}
         frustumCulled={false}
       >
@@ -1762,7 +1847,7 @@ export default function Marchers({
       </instancedMesh>
       <instancedMesh
         ref={plumeRef}
-        args={[undefined, undefined, instanceCapacity]}
+        args={[undefined, undefined, INSTANCE_CAPACITY]}
         castShadow={castMarcherShadows}
         frustumCulled={false}
       >
@@ -1771,7 +1856,7 @@ export default function Marchers({
       </instancedMesh>
       <instancedMesh
         ref={armsRef}
-        args={[undefined, undefined, limbInstanceCapacity]}
+        args={[undefined, undefined, INSTANCE_CAPACITY * 2]}
         castShadow={castMarcherShadows}
         frustumCulled={false}
       >
@@ -1780,7 +1865,7 @@ export default function Marchers({
       </instancedMesh>
       <instancedMesh
         ref={forearmsRef}
-        args={[undefined, undefined, limbInstanceCapacity]}
+        args={[undefined, undefined, INSTANCE_CAPACITY * 2]}
         castShadow={castMarcherShadows}
         frustumCulled={false}
       >
@@ -1789,7 +1874,7 @@ export default function Marchers({
       </instancedMesh>
       <instancedMesh
         ref={handsRef}
-        args={[undefined, undefined, limbInstanceCapacity]}
+        args={[undefined, undefined, INSTANCE_CAPACITY * 2]}
         castShadow={castMarcherShadows}
         frustumCulled={false}
       >
@@ -1798,7 +1883,7 @@ export default function Marchers({
       </instancedMesh>
       <instancedMesh
         ref={legsRef}
-        args={[undefined, undefined, limbInstanceCapacity]}
+        args={[undefined, undefined, INSTANCE_CAPACITY * 2]}
         castShadow={castMarcherShadows}
         frustumCulled={false}
       >
@@ -1807,7 +1892,7 @@ export default function Marchers({
       </instancedMesh>
       <instancedMesh
         ref={feetRef}
-        args={[undefined, undefined, limbInstanceCapacity]}
+        args={[undefined, undefined, INSTANCE_CAPACITY * 2]}
         castShadow={castMarcherShadows}
         frustumCulled={false}
       >
@@ -1818,7 +1903,7 @@ export default function Marchers({
       {/* Section instruments. These stay intentionally low-poly and instanced. */}
       <instancedMesh
         ref={fluteRef}
-        args={[undefined, undefined, instanceCapacity]}
+        args={[undefined, undefined, INSTANCE_CAPACITY]}
         castShadow={castMarcherShadows}
         frustumCulled={false}
       >
@@ -1832,7 +1917,7 @@ export default function Marchers({
       </instancedMesh>
       <instancedMesh
         ref={clarinetRef}
-        args={[undefined, undefined, instanceCapacity]}
+        args={[undefined, undefined, INSTANCE_CAPACITY]}
         castShadow={castMarcherShadows}
         frustumCulled={false}
       >
@@ -1846,7 +1931,7 @@ export default function Marchers({
       </instancedMesh>
       <instancedMesh
         ref={saxRef}
-        args={[undefined, undefined, instanceCapacity]}
+        args={[undefined, undefined, INSTANCE_CAPACITY]}
         castShadow={castMarcherShadows}
         frustumCulled={false}
       >
@@ -1860,7 +1945,7 @@ export default function Marchers({
       </instancedMesh>
       <instancedMesh
         ref={trumpetRef}
-        args={[undefined, undefined, instanceCapacity]}
+        args={[undefined, undefined, INSTANCE_CAPACITY]}
         castShadow={castMarcherShadows}
         frustumCulled={false}
       >
@@ -1874,7 +1959,7 @@ export default function Marchers({
       </instancedMesh>
       <instancedMesh
         ref={melloRef}
-        args={[undefined, undefined, instanceCapacity]}
+        args={[undefined, undefined, INSTANCE_CAPACITY]}
         castShadow={castMarcherShadows}
         frustumCulled={false}
       >
@@ -1888,7 +1973,7 @@ export default function Marchers({
       </instancedMesh>
       <instancedMesh
         ref={baritoneRef}
-        args={[undefined, undefined, instanceCapacity]}
+        args={[undefined, undefined, INSTANCE_CAPACITY]}
         castShadow={castMarcherShadows}
         frustumCulled={false}
       >
@@ -1902,7 +1987,7 @@ export default function Marchers({
       </instancedMesh>
       <instancedMesh
         ref={tromboneRef}
-        args={[undefined, undefined, instanceCapacity]}
+        args={[undefined, undefined, INSTANCE_CAPACITY]}
         castShadow={castMarcherShadows}
         frustumCulled={false}
       >
@@ -1916,7 +2001,7 @@ export default function Marchers({
       </instancedMesh>
       <instancedMesh
         ref={tubaRef}
-        args={[undefined, undefined, instanceCapacity]}
+        args={[undefined, undefined, INSTANCE_CAPACITY]}
         castShadow={castMarcherShadows}
         frustumCulled={false}
       >
@@ -1930,7 +2015,7 @@ export default function Marchers({
       </instancedMesh>
       <instancedMesh
         ref={snareRef}
-        args={[undefined, undefined, instanceCapacity]}
+        args={[undefined, undefined, INSTANCE_CAPACITY]}
         castShadow={castMarcherShadows}
         frustumCulled={false}
       >
@@ -1944,7 +2029,7 @@ export default function Marchers({
       </instancedMesh>
       <instancedMesh
         ref={tenorsRef}
-        args={[undefined, undefined, instanceCapacity]}
+        args={[undefined, undefined, INSTANCE_CAPACITY]}
         castShadow={castMarcherShadows}
         frustumCulled={false}
       >
@@ -1958,7 +2043,7 @@ export default function Marchers({
       </instancedMesh>
       <instancedMesh
         ref={bassDrumRef}
-        args={[undefined, undefined, instanceCapacity]}
+        args={[undefined, undefined, INSTANCE_CAPACITY]}
         castShadow={castMarcherShadows}
         frustumCulled={false}
       >
@@ -1972,7 +2057,7 @@ export default function Marchers({
       </instancedMesh>
       <instancedMesh
         ref={cymbalsRef}
-        args={[undefined, undefined, instanceCapacity]}
+        args={[undefined, undefined, INSTANCE_CAPACITY]}
         castShadow={castMarcherShadows}
         frustumCulled={false}
       >
@@ -1986,7 +2071,7 @@ export default function Marchers({
       </instancedMesh>
       <instancedMesh
         ref={tomsRef}
-        args={[undefined, undefined, instanceCapacity]}
+        args={[undefined, undefined, INSTANCE_CAPACITY]}
         castShadow={castMarcherShadows}
         frustumCulled={false}
       >
@@ -2000,7 +2085,7 @@ export default function Marchers({
       </instancedMesh>
       <instancedMesh
         ref={flagRef}
-        args={[undefined, undefined, instanceCapacity]}
+        args={[undefined, undefined, INSTANCE_CAPACITY]}
         castShadow={castMarcherShadows}
         frustumCulled={false}
       >
@@ -2014,7 +2099,7 @@ export default function Marchers({
       </instancedMesh>
       <instancedMesh
         ref={rifleRef}
-        args={[undefined, undefined, instanceCapacity]}
+        args={[undefined, undefined, INSTANCE_CAPACITY]}
         castShadow={castMarcherShadows}
         frustumCulled={false}
       >

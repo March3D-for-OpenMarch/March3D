@@ -1,6 +1,7 @@
 * {
   box-sizing: border-box;
 }
+
 html,
 body,
 #root {
@@ -15,10 +16,13 @@ body,
   background: #111318;
   color: #f4f4f5;
 }
+
 button,
-input {
+input,
+select {
   font: inherit;
 }
+
 .app {
   height: 100%;
   display: flex;
@@ -53,12 +57,14 @@ input {
   -webkit-app-region: drag;
   border-bottom: 1px solid #29292f;
 }
+
 .menu-group {
   position: relative;
   -webkit-app-region: no-drag;
   display: flex;
   align-items: stretch;
 }
+
 .menu-trigger {
   position: relative;
   height: 36px;
@@ -72,11 +78,13 @@ input {
   -webkit-app-region: no-drag;
   transition: 0.3s;
 }
+
 .menu-trigger:hover,
 .menu-trigger.active {
   color: #fff;
   background: #268acc;
 }
+
 .menu-trigger.active::after {
   content: "";
   position: absolute;
@@ -86,6 +94,7 @@ input {
   height: 2px;
   background: #0f5787;
 }
+
 .menu-dropdown {
   position: absolute;
   top: 100%;
@@ -101,6 +110,7 @@ input {
   z-index: 100000;
   -webkit-app-region: no-drag;
 }
+
 .menu-dropdown button {
   width: 100%;
   min-height: 30px;
@@ -113,30 +123,33 @@ input {
   font-size: 13px;
   cursor: pointer;
 }
+
 .menu-dropdown button:hover:not(:disabled) {
   color: #fff;
   background: #34343d;
 }
+
 .menu-dropdown button:disabled {
   color: #777780;
   cursor: default;
 }
+
 .menu-divider {
   height: 1px;
   margin: 5px 4px;
   background: #383b45;
 }
+
 .menu-shortcut {
   margin-left: auto;
   padding-left: 24px;
-
   color: #8f929b;
   font-size: 11px;
   font-weight: 400;
-
   white-space: nowrap;
   pointer-events: none;
 }
+
 header {
   height: 35px;
   display: flex;
@@ -146,11 +159,13 @@ header {
   border-bottom: 1px solid #292c34;
   background: #0f5787;
 }
+
 .subtitle {
   margin-left: 12px;
   color: #f4f4f5;
   font-size: 13px;
 }
+
 .source {
   margin-left: auto;
   color: #d1d1d6;
@@ -158,6 +173,7 @@ header {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
 .button {
   background: #f1f2f4;
   color: #15171b;
@@ -167,12 +183,14 @@ header {
   cursor: pointer;
   display: inline-block;
 }
+
 .viewer {
   position: relative;
   flex: 1;
   min-width: 0;
   background: #111318;
 }
+
 .empty {
   position: absolute;
   inset: 0;
@@ -182,22 +200,25 @@ header {
   justify-content: center;
   color: #aeb4c0;
 }
+
 .empty h1 {
   color: #fff;
   margin-bottom: 6px;
 }
+
 .empty p {
   margin-top: 0;
   margin-bottom: 22px;
 }
+
 main {
   display: flex;
   flex: 1;
   min-height: 0;
-  display: flex;
   width: 100%;
   height: 100%;
 }
+
 aside {
   width: 320px;
   flex: 0 0 320px;
@@ -209,13 +230,16 @@ aside {
   scrollbar-width: none;
   -ms-overflow-style: none;
 }
+
 aside::-webkit-scrollbar {
   display: none;
 }
+
 aside h2 {
   margin: 0 0 18px;
   font-size: 18px;
 }
+
 aside h3 {
   font-size: 13px;
   text-transform: uppercase;
@@ -223,38 +247,46 @@ aside h3 {
   color: #8d93a1;
   margin: 22px 0 10px;
 }
+
 .stat {
   padding: 10px 0;
   border-bottom: 1px solid #292c34;
 }
+
 .stat span {
   display: block;
   color: #858b99;
   font-size: 12px;
   margin-bottom: 3px;
 }
+
 .stat b {
   font-size: 14px;
 }
+
 hr {
   border: 0;
   border-top: 1px solid #292c34;
   margin: 18px 0;
 }
+
 .check {
   font-size: 14px;
   color: #c8ccd4;
 }
+
 .range {
   width: 100%;
   accent-color: #0f5787;
   cursor: pointer;
 }
+
 .setnav {
   display: flex;
   gap: 8px;
   margin-top: 10px;
 }
+
 .setnav button {
   flex: 1;
   background: #252932;
@@ -264,20 +296,24 @@ hr {
   border-radius: 6px;
   cursor: pointer;
 }
+
 .setnav button:disabled {
   opacity: 0.4;
   cursor: default;
 }
+
 .hint {
   color: #7f8694;
   font-size: 12px;
   line-height: 1.5;
 }
+
 .sections {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
 }
+
 .sections span {
   font-size: 11px;
   background: #242730;
@@ -285,6 +321,7 @@ hr {
   border-radius: 5px;
   color: #c9cdd5;
 }
+
 .error {
   margin-top: 18px;
   padding: 10px;
@@ -294,6 +331,7 @@ hr {
   border-radius: 6px;
   font-size: 12px;
 }
+
 .marcher-label {
   font-size: 9px;
   color: white;
@@ -302,14 +340,17 @@ hr {
   border-radius: 2px;
   white-space: nowrap;
 }
+
 canvas {
   display: block;
 }
+
 .button.secondary {
   background: #252932;
   color: #f4f4f5;
   border: 1px solid #3a3e48;
 }
+
 .play-button {
   background: #0f5787;
   color: #fff;
@@ -319,15 +360,18 @@ canvas {
   font-weight: 700;
   cursor: pointer;
 }
+
 .play-button:disabled {
   opacity: 0.45;
   cursor: default;
 }
+
 .play-row {
   display: flex;
   gap: 8px;
   padding-bottom: 15px;
 }
+
 .play-row button {
   flex: 1;
   background: #252932;
@@ -337,15 +381,18 @@ canvas {
   border-radius: 6px;
   cursor: pointer;
 }
+
 .play-row .big-play {
   flex: 1.5;
   font-size: 16px;
   background: #0f5787;
 }
+
 .play-row button:disabled {
   opacity: 0.4;
   cursor: default;
 }
+
 .time {
   display: flex;
   justify-content: space-between;
@@ -353,6 +400,7 @@ canvas {
   font-size: 12px;
   margin-top: 4px;
 }
+
 .sync-status {
   display: flex;
   align-items: center;
@@ -361,6 +409,7 @@ canvas {
   font-size: 12px;
   color: #aeb4c0;
 }
+
 .dot {
   width: 8px;
   height: 8px;
@@ -368,10 +417,12 @@ canvas {
   background: #666b75;
   display: inline-block;
 }
+
 .dot.online {
   background: #43d17a;
   box-shadow: 0 0 8px rgba(67, 209, 122, 0.55);
 }
+
 .audio-info {
   display: flex;
   flex-direction: column;
@@ -382,6 +433,7 @@ canvas {
   border-radius: 6px;
   font-size: 12px;
 }
+
 .audio-info span {
   color: #9da3af;
   overflow: hidden;
@@ -395,15 +447,18 @@ canvas {
   gap: 10px;
   min-width: max-content;
 }
+
 .brand-logo {
   width: 34px;
   height: 34px;
   object-fit: contain;
 }
+
 .brand > div {
   display: flex;
   align-items: baseline;
 }
+
 .brand strong {
   font-size: 17px;
   letter-spacing: 0.01em;
@@ -435,18 +490,23 @@ canvas {
   pointer-events: none;
   white-space: nowrap;
 }
+
 .playback-banner span {
   display: block;
 }
+
 .playback-banner span:nth-child(1) {
   text-align: left;
 }
+
 .playback-banner span:nth-child(2) {
   text-align: center;
 }
+
 .playback-banner span:nth-child(3) {
   text-align: right;
 }
+
 @media (max-width: 900px) {
   .playback-banner {
     top: 12px;
@@ -465,6 +525,7 @@ canvas {
   margin-left: auto;
   -webkit-app-region: no-drag;
 }
+
 .window-controls button {
   width: 46px;
   height: 45px;
@@ -480,32 +541,38 @@ canvas {
   transition: 0.3s;
   border-radius: 25px;
 }
+
 .window-controls button:hover {
   background: rgba(47, 47, 55, 0.5);
   color: #fff;
 }
+
 .window-controls .close-window:hover {
   background: rgba(232, 17, 35, 0.5);
   color: #fff;
 }
+
 .minimize-icon {
   width: 10px;
   height: 1px;
   background: currentColor;
   display: block;
 }
+
 .maximize-icon {
   width: 10px;
   height: 10px;
   border: 1px solid currentColor;
   display: block;
 }
+
 .close-icon {
   width: 12px;
   height: 12px;
   position: relative;
   display: block;
 }
+
 .close-icon::before,
 .close-icon::after {
   content: "";
@@ -513,19 +580,128 @@ canvas {
   top: 5px;
   left: 0;
   width: 12px;
-  height: 1px;
+  height: 2px;
   background: currentColor;
   transform: rotate(45deg);
 }
+
 .close-icon::after {
   transform: rotate(-45deg);
 }
-.menu-section-label {
-  padding: 6px 10px 3px;
-  color: #8d93a1;
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+
+/* Application settings rows. */
+.menu-setting-row {
+  width: 100%;
+  min-height: 30px;
+  padding: 6px 10px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: #dedee4;
+  background: transparent;
+  border: 0;
+  border-radius: 3px;
+  font-size: 13px;
+}
+
+.menu-setting-row > span {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+/* Tuba Model dropdown. */
+.menu-setting-row select {
+  flex: 0 0 auto;
+  width: 120px;
+  height: 24px;
+  padding: 2px 24px 2px 7px;
+  color: #dedee4;
+  background: #252932;
+  border: 1px solid #3a3e48;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+  outline: none;
+}
+
+.menu-setting-row select:hover {
+  background: #30343d;
+  border-color: #4a4f5b;
+}
+
+.menu-setting-row select:focus {
+  border-color: #0f5787;
+  box-shadow: 0 0 0 1px #0f5787;
+}
+
+.menu-setting-row select option {
+  color: #dedee4;
+  background: #252932;
+}
+
+/* Developer-mode options.
+   These look like normal menu items instead of browser checkboxes. */
+.menu-checkbox {
+  position: relative;
+  width: 100%;
+  min-height: 30px;
+  padding: 6px 10px;
+  display: flex;
+  align-items: center;
+  color: #dedee4;
+  background: transparent;
+  border: 0;
+  border-radius: 3px;
+  text-align: left;
+  font-size: 13px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.menu-checkbox:hover {
+  color: #fff;
+  background: #34343d;
+}
+
+/* Hide the native checkbox. */
+.menu-checkbox input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  pointer-events: none;
+}
+
+/* Checkmark space. */
+.menu-checkbox::before {
+  content: "";
+  width: 14px;
+  min-width: 14px;
+  margin-right: 0;
+  color: #dedee4;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+/* Show the checkmark only when enabled. */
+.menu-checkbox:has(input:checked)::before {
+  content: "✓";
+}
+
+.menu-checkbox span {
+  flex: 1;
+}
+
+.menu-checkbox:focus-within {
+  outline: none;
+}
+
+.menu-checkbox:has(input:focus-visible) {
+  outline: 1px solid #0f5787;
+  outline-offset: -1px;
 }
 
 /* OpenMarch synchronization ribbon. */
@@ -598,7 +774,7 @@ canvas {
   white-space: nowrap;
 }
 
-/* OpenMarch Sync menu status */
+/* OpenMarch Sync menu status. */
 .sync-menu-status {
   display: flex;
   align-items: center;
@@ -607,6 +783,7 @@ canvas {
   color: var(--text, #d8dee9);
   font-size: 12px;
 }
+
 .sync-menu-dot {
   width: 7px;
   height: 7px;
@@ -614,9 +791,11 @@ canvas {
   background: #777;
   flex: 0 0 auto;
 }
+
 .sync-menu-dot.online {
   background: #3ecf72;
 }
+
 .sync-menu-drill {
   padding: 0 10px 7px;
   max-width: 260px;
@@ -626,6 +805,7 @@ canvas {
   color: #9da7b3;
   font-size: 11px;
 }
+
 .sync-menu-help {
   padding: 7px 10px 3px;
   max-width: 260px;
@@ -756,8 +936,7 @@ canvas {
   background: currentColor;
 }
 
-/* Restore/maximize icon: a single square when restored and overlapping
-   squares when the Electron window is actually maximized. */
+/* Restore/maximize icon. */
 .maximize-icon.is-maximized {
   position: relative;
   width: 10px;

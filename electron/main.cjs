@@ -77,6 +77,7 @@ function configureAutoUpdater() {
 
   autoUpdater.on("update-downloaded", () => {
     if (!updateRequestedByUser) return;
+
     // NSIS replaces the installed application in-place and then relaunches it.
     // isSilent=false keeps the normal updater behavior; isForceRunAfter=true
     // starts March3D again after installation.
@@ -90,6 +91,7 @@ function configureAutoUpdater() {
 
 function checkForUpdatesSoon() {
   if (!app.isPackaged || process.platform !== "win32") return;
+
   setTimeout(() => {
     autoUpdater.checkForUpdates().catch((error) => {
       // Update checks should never prevent March3D from starting.
@@ -100,12 +102,17 @@ function checkForUpdatesSoon() {
 
 function cleanDotsCandidate(value) {
   if (typeof value !== "string") return null;
+
   let candidate = value.trim().replace(/^file:\/\//i, "");
+
   try {
     candidate = decodeURIComponent(candidate);
   } catch {}
+
   candidate = candidate.replace(/^\/+([A-Za-z]:)/, "$1");
+
   if (!/\.dots$/i.test(candidate)) return null;
+
   return candidate;
 }
 
@@ -120,9 +127,12 @@ async function fileExists(filePath) {
 
 async function findDotsByBasename(baseName) {
   const key = baseName.toLowerCase();
+
   if (drillResolveCache.has(key)) {
     const cached = drillResolveCache.get(key);
+
     if (await fileExists(cached)) return cached;
+
     drillResolveCache.delete(key);
   }
 
@@ -131,6 +141,7 @@ async function findDotsByBasename(baseName) {
   // large OneDrive trees when the plugin only reports a basename.
   if (lastResolvedDrill) {
     const sibling = path.join(path.dirname(lastResolvedDrill), baseName);
+
     if (await fileExists(sibling)) {
       drillResolveCache.set(key, sibling);
       return sibling;
@@ -156,6 +167,7 @@ async function findDotsByBasename(baseName) {
       ].filter(Boolean),
     ),
   ];
+
   const skipNames = new Set([
     "node_modules",
     ".git",
@@ -165,43 +177,62 @@ async function findDotsByBasename(baseName) {
     ".npm",
     ".pnpm-store",
   ]);
-  const queue = roots.map((root) => ({ dir: root, depth: 0 }));
+
+  const queue = roots.map((root) => ({
+    dir: root,
+    depth: 0,
+  }));
+
   let visited = 0;
   const maxVisited = 2500;
 
   while (queue.length && visited < maxVisited) {
     const { dir, depth } = queue.shift();
     visited++;
+
     let entries;
+
     try {
-      entries = await fs.promises.readdir(dir, { withFileTypes: true });
+      entries = await fs.promises.readdir(dir, {
+        withFileTypes: true,
+      });
     } catch {
       continue;
     }
+
     for (const entry of entries) {
       if (entry.isFile() && entry.name.toLowerCase() === key) {
         const found = path.join(dir, entry.name);
         drillResolveCache.set(key, found);
         return found;
       }
+
       if (
         entry.isDirectory() &&
         depth < 5 &&
         !skipNames.has(entry.name) &&
         !entry.name.startsWith(".")
       ) {
-        queue.push({ dir: path.join(dir, entry.name), depth: depth + 1 });
+        queue.push({
+          dir: path.join(dir, entry.name),
+          depth: depth + 1,
+        });
       }
     }
   }
+
   return null;
 }
 
 async function resolveDotsCandidate(value) {
   const candidate = cleanDotsCandidate(value);
+
   if (!candidate) return null;
-  if (path.isAbsolute(candidate) && (await fileExists(candidate)))
+
+  if (path.isAbsolute(candidate) && (await fileExists(candidate))) {
     return path.normalize(candidate);
+  }
+
   return findDotsByBasename(path.basename(candidate));
 }
 
@@ -212,8 +243,10 @@ async function handleSyncMessage(message) {
     latestSyncState.playing = !!message.playing;
   } else if (message.type === "position") {
     const position = Number(message.position);
-    if (Number.isFinite(position))
+
+    if (Number.isFinite(position)) {
       latestSyncState.position = Math.max(0, position);
+    }
   }
 
   if (message.type !== "drill-file") {
@@ -222,6 +255,7 @@ async function handleSyncMessage(message) {
   }
 
   const resolved = await resolveDotsCandidate(message.path || message.name);
+
   if (!resolved) return;
 
   latestSyncState.drillFile = {
@@ -238,11 +272,14 @@ async function handleSyncMessage(message) {
       path: resolved,
       name: path.basename(resolved),
     });
+
     return;
   }
 
   lastResolvedDrill = resolved;
+
   startFileWatcher(resolved);
+
   sendToRenderer("openmarch-sync", {
     type: "drill-file",
     path: resolved,
@@ -270,10 +307,14 @@ async function readEmbeddedAudio(filePath) {
   if (!sqlJsAudioPromise) {
     const initSqlJs = require("sql.js");
     const wasmPath = require.resolve("sql.js/dist/sql-wasm.wasm");
-    sqlJsAudioPromise = initSqlJs({ locateFile: () => wasmPath });
+
+    sqlJsAudioPromise = initSqlJs({
+      locateFile: () => wasmPath,
+    });
   }
 
   const SQL = await sqlJsAudioPromise;
+
   const buffer = await fs.promises.readFile(filePath);
   const db = new SQL.Database(new Uint8Array(buffer));
 
@@ -282,7 +323,9 @@ async function readEmbeddedAudio(filePath) {
       `SELECT path,nickname,data,selected FROM audio_files WHERE selected = 1 ORDER BY id LIMIT 1`,
     )[0];
 
-    if (!result || !result.values.length) return null;
+    if (!result || !result.values.length) {
+      return null;
+    }
 
     const columns = Object.fromEntries(
       result.columns.map((name, index) => [name, result.values[0][index]]),
@@ -310,17 +353,17 @@ function startFileWatcher(filePath) {
     watcher.close();
     watcher = null;
   }
+
   clearTimeout(watchTimer);
   watchTimer = null;
+
   watchedFile = filePath;
 
   watcher = fs.watch(filePath, { persistent: false }, () => {
     clearTimeout(watchTimer);
+
     // Only notify the renderer that the database changed. Do NOT read and
-    // transfer the entire .dots file here: large drills often contain 10-50 MB
-    // of embedded audio, and OpenMarch can touch the SQLite file repeatedly
-    // during one UI edit. Sending the full database for every fs.watch event
-    // was the main cause of the OM-sync freeze.
+    // transfer the entire .dots file here.
     watchTimer = setTimeout(() => {
       sendToRenderer("dots-file-changed", { path: filePath });
     }, 350);
@@ -340,8 +383,11 @@ function websocketAccept(key) {
 
 function sendWebSocketText(socket, message) {
   if (!socket || socket.destroyed) return false;
+
   const payload = Buffer.from(JSON.stringify(message), "utf8");
+
   let header;
+
   if (payload.length < 126) {
     header = Buffer.from([0x81, payload.length]);
   } else if (payload.length < 65536) {
@@ -355,8 +401,10 @@ function sendWebSocketText(socket, message) {
     header[1] = 127;
     header.writeBigUInt64BE(BigInt(payload.length), 2);
   }
+
   try {
     socket.write(Buffer.concat([header, payload]));
+
     return true;
   } catch {
     return false;
@@ -365,48 +413,68 @@ function sendWebSocketText(socket, message) {
 
 function requestOpenMarchState() {
   for (const socket of syncClients) {
-    sendWebSocketText(socket, { type: "request-state" });
+    sendWebSocketText(socket, {
+      type: "request-state",
+    });
   }
 }
 
 function parseWebSocketFrames(socket, buffer) {
   let offset = 0;
+
   while (buffer.length - offset >= 2) {
     const first = buffer[offset];
     const second = buffer[offset + 1];
+
     const opcode = first & 0x0f;
     const masked = (second & 0x80) !== 0;
+
     let length = second & 0x7f;
     let headerLength = 2;
 
     if (length === 126) {
       if (buffer.length - offset < 4) break;
+
       length = buffer.readUInt16BE(offset + 2);
+
       headerLength = 4;
     } else if (length === 127) {
       if (buffer.length - offset < 10) break;
+
       const bigLength = buffer.readBigUInt64BE(offset + 2);
-      if (bigLength > BigInt(Number.MAX_SAFE_INTEGER))
+
+      if (bigLength > BigInt(Number.MAX_SAFE_INTEGER)) {
         throw new Error("WebSocket frame too large");
+      }
+
       length = Number(bigLength);
       headerLength = 10;
     }
 
     const maskLength = masked ? 4 : 0;
     const total = headerLength + maskLength + length;
-    if (buffer.length - offset < total) break;
+
+    if (buffer.length - offset < total) {
+      break;
+    }
 
     let payload = buffer.subarray(
       offset + headerLength + maskLength,
       offset + total,
     );
+
     if (masked) {
       const mask = buffer.subarray(
         offset + headerLength,
         offset + headerLength + 4,
       );
+
       const decoded = Buffer.alloc(length);
-      for (let i = 0; i < length; i++) decoded[i] = payload[i] ^ mask[i % 4];
+
+      for (let i = 0; i < length; i++) {
+        decoded[i] = payload[i] ^ mask[i % 4];
+      }
+
       payload = decoded;
     }
 
@@ -436,16 +504,20 @@ function startSyncServer() {
 
       if (!handshakeComplete) {
         const headerEnd = buffer.indexOf("\r\n\r\n");
+
         if (headerEnd === -1) return;
 
         const headers = buffer.subarray(0, headerEnd).toString("utf8");
+
         const match = headers.match(/Sec-WebSocket-Key:\s*(.+)\r\n/i);
+
         if (!match) {
           socket.destroy();
           return;
         }
 
         const accept = websocketAccept(match[1].trim());
+
         socket.write(
           "HTTP/1.1 101 Switching Protocols\r\n" +
             "Upgrade: websocket\r\n" +
@@ -454,8 +526,11 @@ function startSyncServer() {
         );
 
         handshakeComplete = true;
+
         buffer = buffer.subarray(headerEnd + 4);
+
         syncClients.add(socket);
+
         sendToRenderer("openmarch-sync", {
           type: "connection",
           connected: true,
@@ -467,6 +542,7 @@ function startSyncServer() {
           buffer = parseWebSocketFrames(socket, buffer);
         } catch (error) {
           console.error("OpenMarch WebSocket error:", error);
+
           socket.destroy();
         }
       }
@@ -474,12 +550,14 @@ function startSyncServer() {
 
     socket.on("close", () => {
       syncClients.delete(socket);
+
       if (syncClients.size === 0) {
         latestSyncState = {
           playing: false,
           position: 0,
           drillFile: null,
         };
+
         sendToRenderer("openmarch-sync", {
           type: "connection",
           connected: false,
@@ -513,12 +591,35 @@ function createWindow() {
 
   // The renderer provides an OpenMarch-inspired React menu bar.
   mainWindow.setMenu(null);
+
   mainWindow.on("maximize", () =>
     mainWindow?.webContents.send("window:maximized", true),
   );
+
   mainWindow.on("unmaximize", () =>
     mainWindow?.webContents.send("window:maximized", false),
   );
+
+  // Keep the renderer informed when native Electron fullscreen changes.
+  mainWindow.on("enter-full-screen", () => {
+    mainWindow?.webContents.send("window:fullscreen", true);
+  });
+
+  mainWindow.on("leave-full-screen", () => {
+    mainWindow?.webContents.send("window:fullscreen", false);
+  });
+
+  // F11 toggles native Electron fullscreen.
+  // This works regardless of which part of the renderer has keyboard focus.
+  mainWindow.webContents.on("before-input-event", (event, input) => {
+    if (input.type === "keyDown" && input.key === "F11") {
+      event.preventDefault();
+
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.setFullScreen(!mainWindow.isFullScreen());
+      }
+    }
+  });
 
   if (process.env.VITE_DEV_SERVER_URL) {
     mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
@@ -528,15 +629,38 @@ function createWindow() {
 }
 
 ipcMain.on("window:minimize", () => mainWindow?.minimize());
+
 ipcMain.on("window:toggle-maximize", () => {
   if (!mainWindow) return;
-  if (mainWindow.isMaximized()) mainWindow.unmaximize();
-  else mainWindow.maximize();
+
+  if (mainWindow.isMaximized()) {
+    mainWindow.unmaximize();
+  } else {
+    mainWindow.maximize();
+  }
 });
+
 ipcMain.on("window:close", () => mainWindow?.close());
+
 ipcMain.handle("window:is-maximized", () => Boolean(mainWindow?.isMaximized()));
+
+// Native Electron fullscreen.
+ipcMain.on("window:toggle-fullscreen", () => {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return;
+  }
+
+  mainWindow.setFullScreen(!mainWindow.isFullScreen());
+});
+
+ipcMain.handle("window:is-fullscreen", () =>
+  Boolean(mainWindow?.isFullScreen()),
+);
+
 ipcMain.on("devtools:open", () => {
-  if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return;
+  }
 
   mainWindow.webContents.openDevTools({
     mode: "detach",
@@ -544,9 +668,13 @@ ipcMain.on("devtools:open", () => {
 });
 
 ipcMain.on("devtools:inspect-element", (_event, { x, y }) => {
-  if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return;
+  }
 
-  if (typeof x !== "number" || typeof y !== "number") return;
+  if (typeof x !== "number" || typeof y !== "number") {
+    return;
+  }
 
   mainWindow.webContents.openDevTools({
     mode: "detach",
@@ -557,13 +685,14 @@ ipcMain.on("devtools:inspect-element", (_event, { x, y }) => {
 
 ipcMain.handle("sync:probe", async () => {
   const connected = syncClients.size > 0;
+
   if (connected) {
     requestOpenMarchState();
+
     // Give the plugin one event-loop turn to report its current drill/clock.
-    // The plugin already sends absolute file paths, so this stays fast even
-    // when the user's Documents folder is large.
     await new Promise((resolve) => setTimeout(resolve, 150));
   }
+
   return {
     connected: syncClients.size > 0,
     playing: latestSyncState.playing,
@@ -573,15 +702,20 @@ ipcMain.handle("sync:probe", async () => {
 });
 
 ipcMain.handle("dots:open-synced", async () => {
-  // When OpenMarch is connected, the renderer should never show a file picker.
-  // Return the .dots path that the sync plugin most recently resolved instead.
-  // Re-resolve it in case the file was renamed/moved after the original message.
   if (!lastResolvedDrill) return null;
+
   const resolved = await resolveDotsCandidate(lastResolvedDrill);
+
   if (!resolved) return null;
+
   lastResolvedDrill = resolved;
+
   startFileWatcher(resolved);
-  return { path: resolved, name: path.basename(resolved) };
+
+  return {
+    path: resolved,
+    name: path.basename(resolved),
+  };
 });
 
 ipcMain.handle("dots:open", async () => {
@@ -589,16 +723,29 @@ ipcMain.handle("dots:open", async () => {
     title: "Open OpenMarch drill",
     properties: ["openFile"],
     filters: [
-      { name: "OpenMarch Drill", extensions: ["dots"] },
-      { name: "SQLite Database", extensions: ["sqlite", "db"] },
+      {
+        name: "OpenMarch Drill",
+        extensions: ["dots"],
+      },
+      {
+        name: "SQLite Database",
+        extensions: ["sqlite", "db"],
+      },
     ],
   });
 
-  if (result.canceled || !result.filePaths[0]) return null;
+  if (result.canceled || !result.filePaths[0]) {
+    return null;
+  }
 
   const filePath = result.filePaths[0];
+
   startFileWatcher(filePath);
-  return { path: filePath, name: path.basename(filePath) };
+
+  return {
+    path: filePath,
+    name: path.basename(filePath),
+  };
 });
 
 ipcMain.handle("file:read", async (_event, filePath) => {
@@ -606,7 +753,10 @@ ipcMain.handle("file:read", async (_event, filePath) => {
 });
 
 ipcMain.handle("audio:read-embedded", async (_event, filePath) => {
-  if (typeof filePath !== "string" || !filePath) return null;
+  if (typeof filePath !== "string" || !filePath) {
+    return null;
+  }
+
   return readEmbeddedAudio(filePath);
 });
 
@@ -617,8 +767,10 @@ ipcMain.handle("dots:watch", async (_event, filePath) => {
 
 ipcMain.handle("dots:stop-watch", async () => {
   if (watcher) watcher.close();
+
   watcher = null;
   watchedFile = null;
+
   return true;
 });
 
@@ -633,8 +785,13 @@ ipcMain.handle("audio:open", async () => {
       },
     ],
   });
-  if (result.canceled || !result.filePaths[0]) return null;
+
+  if (result.canceled || !result.filePaths[0]) {
+    return null;
+  }
+
   const filePath = result.filePaths[0];
+
   return {
     path: filePath,
     name: path.basename(filePath),
@@ -644,20 +801,28 @@ ipcMain.handle("audio:open", async () => {
 
 app.whenReady().then(() => {
   startSyncServer();
+
   if (!process.env.VITE_DEV_SERVER_URL && !app.isPackaged) {
     process.env.VITE_DEV_SERVER_URL = "http://localhost:5173";
   }
+
   createWindow();
   configureAutoUpdater();
   checkForUpdatesSoon();
 
   app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    if (BrowserWindow.getAllWindows().length === 0) {
+      createWindow();
+    }
   });
 });
 
 app.on("window-all-closed", () => {
   if (watcher) watcher.close();
+
   if (syncServer) syncServer.close();
-  if (process.platform !== "darwin") app.quit();
+
+  if (process.platform !== "darwin") {
+    app.quit();
+  }
 });

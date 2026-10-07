@@ -8,6 +8,7 @@ import {
   type MutableRefObject,
 } from "react";
 import Scene from "./viewer/Scene";
+import type { TubaModel } from "./viewer/Marchers";
 import { type Drill } from "./lib/dots";
 import { parseDotsInWorker } from "./lib/dotsParser";
 import logoUrl from "./assets/March3D-clear.png";
@@ -316,7 +317,13 @@ export default function App() {
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const menuRef = useRef<HTMLElement | null>(null);
   const [developerMode, setDeveloperMode] = useState(false);
+  const [forceMarcherRedraw, setForceMarcherRedraw] = useState(false);
   const [showDrillInfo, setShowDrillInfo] = useState(false);
+  const [tubaModel, setTubaModel] = useState<TubaModel>(() =>
+    localStorage.getItem("march3d-tuba-model") === "contrabassBugle"
+      ? "contrabassBugle"
+      : "sousaphone",
+  );
   const [pageIndex, setPageIndex] = useState(0);
   const [labels, setLabels] = useState(true);
   const [playing, setPlaying] = useState(false);
@@ -332,12 +339,6 @@ export default function App() {
     name: string;
     url: string;
   } | null>(null);
-  // Keep embedded audio bytes out of React state. Large audio blobs become
-  // React DevTools props/state and can trigger DataCloneError/OOM while the
-  // renderer is switching drills. Only the object URL and small metadata need
-  // to participate in React rendering.
-  const [embeddedAudioUrl, setEmbeddedAudioUrl] = useState<string | null>(null);
-  const embeddedAudioUrlRef = useRef<string | null>(null);
   const [sourcePath, setSourcePath] = useState<string | null>(null);
   const [loadVersion, setLoadVersion] = useState(0);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -503,6 +504,19 @@ export default function App() {
     () => (drill ? [...new Set(drill.marchers.map((m) => m.section))] : []),
     [drill],
   );
+  const embeddedAudioUrl = useMemo(() => {
+    if (!drill?.audio?.data) return null;
+    const blob = new Blob(
+      [
+        drill.audio.data.buffer.slice(
+          drill.audio.data.byteOffset,
+          drill.audio.data.byteOffset + drill.audio.data.byteLength,
+        ) as ArrayBuffer,
+      ],
+      { type: audioMime(drill.audio.path) },
+    );
+    return URL.createObjectURL(blob);
+  }, [drill]);
   const audioUrl = externalAudio?.url ?? embeddedAudioUrl;
   const pageIndexForTime = useCallback(
     (time: number) => {
@@ -517,15 +531,13 @@ export default function App() {
     [pageTimes],
   );
 
-  useEffect(() => {
-    return () => {
-      if (embeddedAudioUrlRef.current) {
-        URL.revokeObjectURL(embeddedAudioUrlRef.current);
-        embeddedAudioUrlRef.current = null;
-      }
+  useEffect(
+    () => () => {
+      if (embeddedAudioUrl) URL.revokeObjectURL(embeddedAudioUrl);
       if (externalAudio?.url) URL.revokeObjectURL(externalAudio.url);
-    };
-  }, [externalAudio]);
+    },
+    [embeddedAudioUrl, externalAudio],
+  );
 
   const parseDotsOffThread = useCallback(
     (
@@ -570,40 +582,9 @@ export default function App() {
         // older worker result replace the current drill.
         if (generation !== loadGenerationRef.current) return false;
 
-        // Materialize embedded audio as a Blob URL immediately, then remove
-        // the binary bytes from the Drill object that enters React state.
-        // This keeps potentially large MP3/WAV data out of React DevTools and
-        // prevents Performance.measure/DataCloneError OOMs during file swaps.
-        if (parsed.audio?.data && parsed.audio.data.byteLength > 0) {
-          const blob = new Blob(
-            [
-              parsed.audio.data.buffer.slice(
-                parsed.audio.data.byteOffset,
-                parsed.audio.data.byteOffset + parsed.audio.data.byteLength,
-              ) as ArrayBuffer,
-            ],
-            { type: audioMime(parsed.audio.path) },
-          );
-          const nextUrl = URL.createObjectURL(blob);
-          if (embeddedAudioUrlRef.current) {
-            URL.revokeObjectURL(embeddedAudioUrlRef.current);
-          }
-          embeddedAudioUrlRef.current = nextUrl;
-          setEmbeddedAudioUrl(nextUrl);
-        } else if (includeAudioData) {
-          if (embeddedAudioUrlRef.current) {
-            URL.revokeObjectURL(embeddedAudioUrlRef.current);
-            embeddedAudioUrlRef.current = null;
-          }
-          setEmbeddedAudioUrl(null);
-        }
-
-        const lightweightAudio = parsed.audio
-          ? { ...parsed.audio, data: new Uint8Array() }
-          : null;
         const nextDrill =
           includeAudioData || parsed.audio || !reuseExistingAudio
-            ? { ...parsed, audio: lightweightAudio }
+            ? parsed
             : { ...parsed, audio: drillRef.current?.audio ?? null };
 
         if (resetTransport) {
@@ -1557,13 +1538,18 @@ export default function App() {
                         role="menuitem"
                         onClick={() => {
                           setOpenMenu(null);
-                          if (document.fullscreenElement)
+
+                          if (window.march3d?.isElectron) {
+                            window.march3d.toggleFullscreen();
+                          } else if (document.fullscreenElement) {
                             void document.exitFullscreen();
-                          else
+                          } else {
                             void document.documentElement.requestFullscreen();
+                          }
                         }}
                       >
-                        Toggle Fullscreen
+                        <span>Toggle Fullscreen</span>
+                        <span className="menu-shortcut">F11</span>
                       </button>
                     </>
                   )}
@@ -1582,9 +1568,24 @@ export default function App() {
                       </button>
                       <div className="menu-divider" />
                       <div className="menu-section-label">Application</div>
-                      <button type="button" role="menuitem" disabled>
-                        Preferences (coming soon)
-                      </button>
+                      <label
+                        className="menu-setting-row"
+                        title="Choose the model used for tuba sections."
+                      >
+                        <span>Tuba Model</span>
+                        <select
+                          value={tubaModel}
+                          aria-label="Tuba model"
+                          onChange={(event) => {
+                            const next = event.target.value as TubaModel;
+                            setTubaModel(next);
+                            localStorage.setItem("march3d-tuba-model", next);
+                          }}
+                        >
+                          <option value="sousaphone">Sousaphone</option>
+                          <option value="contrabassBugle">Contra</option>
+                        </select>
+                      </label>
                       <div className="menu-divider" />
 
                       <div className="menu-section-label">Developer</div>
@@ -1596,14 +1597,27 @@ export default function App() {
                           const next = !developerMode;
 
                           setDeveloperMode(next);
-                          localStorage.setItem(
-                            "march3d-developer-mode",
-                            String(next),
-                          );
+                          if (!next) setForceMarcherRedraw(false);
                         }}
                       >
                         {developerMode ? "✓ Developer Mode" : "Developer Mode"}
                       </button>
+
+                      {developerMode && (
+                        <label
+                          className="menu-checkbox"
+                          title="Redraw all marcher instances every animation frame. Useful when developing marcher textures or models; may reduce performance."
+                        >
+                          <input
+                            type="checkbox"
+                            checked={forceMarcherRedraw}
+                            onChange={(event) =>
+                              setForceMarcherRedraw(event.target.checked)
+                            }
+                          />
+                          <span>Force Marcher Redraw</span>
+                        </label>
+                      )}
 
                       <button
                         type="button"
@@ -1674,6 +1688,8 @@ export default function App() {
               pageTimes={pageTimes}
               playheadRef={playheadRef}
               resetToken={`${sourcePath ?? drill.sourceName}:${loadVersion}`}
+              forceMarcherRedraw={forceMarcherRedraw}
+              tubaModel={tubaModel}
             />
           ) : (
             <div className="empty">
