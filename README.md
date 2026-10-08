@@ -178,7 +178,7 @@ Restart OpenMarch after installing or updating March3D so the latest plugin vers
 
 ## Current Version
 
-**March3D v0.3.33**
+**March3D v0.3.34**
 
 ## Status
 
