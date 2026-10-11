@@ -315,6 +315,9 @@ export default function App() {
     drillRef.current = drill;
   }, [drill]);
   const [openMenu, setOpenMenu] = useState<string | null>(null);
+  const [cameraAzimuth, setCameraAzimuth] = useState(0);
+  const [cameraElevation, setCameraElevation] = useState(30);
+  const [cameraDistance, setCameraDistance] = useState(238);
   const menuRef = useRef<HTMLElement | null>(null);
   const [developerMode, setDeveloperMode] = useState(false);
   const [forceMarcherRedraw, setForceMarcherRedraw] = useState(false);
@@ -907,41 +910,8 @@ export default function App() {
     setPlaying(lastOmPlayingRef.current);
   }
 
-  async function syncWithOpenMarch() {
-    setError("");
-    if (!window.march3d?.isElectron || !window.march3d.probeOpenMarchSync) {
-      setError("OpenMarch synchronization requires the March3D desktop app.");
-      return;
-    }
-
-    try {
-      // Probe the Electron WebSocket server rather than trusting an old UI
-      // connection flag. The server also asks the OpenMarch plugin to send
-      // its current drill, transport state and playback position.
-      const state = await window.march3d.probeOpenMarchSync();
-      syncConnectedRef.current = state.connected;
-      setSyncConnected(state.connected);
-
-      if (!state.connected) {
-        syncEnabledRef.current = false;
-        setSyncEnabled(false);
-        setError(
-          "OpenMarch was not detected. Open OpenMarch and ensure the March3D Sync plugin is installed and running, then click Sync with OpenMarch again.",
-        );
-        return;
-      }
-
-      lastOmPlayingRef.current = !!state.playing;
-      lastOmPositionRef.current = Math.max(0, Number(state.position) || 0);
-      if (state.drillFile?.path) {
-        lastOmDrillPathRef.current = state.drillFile.path;
-      }
-      await resyncWithOpenMarch();
-    } catch (error) {
-      setError(
-        `Could not check OpenMarch connection: ${error instanceof Error ? error.message : "unknown error"}`,
-      );
-    }
+  function syncWithOpenMarch() {
+    void resyncWithOpenMarch();
   }
 
   function desyncFromOpenMarch() {
@@ -1413,7 +1383,7 @@ export default function App() {
       </nav>
       <header>
         <nav className="menu-bar" ref={menuRef} aria-label="Application menu">
-          {["File", "Sync", "View", "Settings"].map((menu) => (
+          {["File", "Sync", "View", "Camera", "Settings"].map((menu) => (
             <div className="menu-group" key={menu}>
               <button
                 type="button"
@@ -1471,47 +1441,57 @@ export default function App() {
                           className={`sync-menu-dot${syncConnected ? " online" : ""}`}
                         />
                         <span>
-                          {!syncConnected
-                            ? "Disconnected"
-                            : syncEnabled
-                              ? "Synced"
-                              : "Desynced"}
+                          {syncConnected
+                            ? syncEnabled
+                              ? playing
+                                ? "Connected · Synced · Live playback"
+                                : "Connected · Synced · Paused"
+                              : "Connected · Desynced"
+                            : "Disconnected"}
                         </span>
                       </div>
-                      <div
-                        className="sync-menu-drill"
-                        title={drill?.sourceName ?? ""}
-                      >
-                        {drill?.sourceName ??
-                          sourcePath?.split(/[\\/]/).pop() ??
-                          "No .dots file open"}
-                      </div>
-                      <div className="menu-divider" />
-                      {syncConnected && syncEnabled ? (
-                        <button
-                          type="button"
-                          role="menuitem"
-                          onClick={() => {
-                            setOpenMenu(null);
-                            desyncFromOpenMarch();
-                          }}
+                      {drill?.sourceName && (
+                        <div
+                          className="sync-menu-drill"
+                          title={drill.sourceName}
                         >
-                          Desync with OpenMarch
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          role="menuitem"
-                          onClick={() => {
-                            setOpenMenu(null);
-                            syncWithOpenMarch();
-                          }}
-                        >
-                          {syncConnected
-                            ? "Resync with OpenMarch"
-                            : "Sync with OpenMarch"}
-                        </button>
+                          {drill.sourceName}
+                        </div>
                       )}
+                      <div className="menu-divider" />
+                      <button
+                        type="button"
+                        role="menuitem"
+                        disabled={!syncConnected}
+                        onClick={() => {
+                          setOpenMenu(null);
+                          syncWithOpenMarch();
+                        }}
+                      >
+                        Sync with OpenMarch
+                      </button>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        disabled={!syncConnected}
+                        onClick={() => {
+                          setOpenMenu(null);
+                          void resyncWithOpenMarch();
+                        }}
+                      >
+                        Resync with OpenMarch
+                      </button>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        disabled={!syncEnabled}
+                        onClick={() => {
+                          setOpenMenu(null);
+                          void desyncFromOpenMarch();
+                        }}
+                      >
+                        Desync from OpenMarch
+                      </button>
                       <div className="menu-divider" />
                       <button
                         type="button"
@@ -1521,8 +1501,14 @@ export default function App() {
                           void openDots();
                         }}
                       >
-                        Open .dots
+                        {syncEnabled ? "Open Synced Drill" : "Open .dots"}
                       </button>
+                      {!syncConnected && (
+                        <div className="sync-menu-help">
+                          Run the March3D Sync .om.js plugin in OpenMarch to
+                          connect.
+                        </div>
+                      )}
                     </>
                   )}
                   {menu === "View" && (
@@ -1569,6 +1555,71 @@ export default function App() {
                         <span className="menu-shortcut">F11</span>
                       </button>
                     </>
+                  )}
+                  {menu === "Camera" && (
+                    <div className="camera-menu-controls">
+                      <div className="menu-section-label">Camera Controls</div>
+                      <label>
+                        <span>
+                          Side to Side <output>{cameraAzimuth}°</output>
+                        </span>
+                        <input
+                          type="range"
+                          min="-180"
+                          max="180"
+                          step="1"
+                          value={cameraAzimuth}
+                          onChange={(e) =>
+                            setCameraAzimuth(Number(e.target.value))
+                          }
+                        />
+                      </label>
+                      <label>
+                        <span>
+                          Up and Down <output>{cameraElevation}°</output>
+                        </span>
+                        <input
+                          type="range"
+                          min="2"
+                          max="88"
+                          step="1"
+                          value={cameraElevation}
+                          onChange={(e) =>
+                            setCameraElevation(Number(e.target.value))
+                          }
+                        />
+                      </label>
+                      <label>
+                        <span>
+                          Zoom{" "}
+                          <output>{Math.round(23800 / cameraDistance)}%</output>
+                        </span>
+                        <input
+                          type="range"
+                          min="18"
+                          max="850"
+                          step="1"
+                          value={cameraDistance}
+                          onChange={(e) =>
+                            setCameraDistance(Number(e.target.value))
+                          }
+                        />
+                      </label>
+                      <div className="menu-divider" />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCameraAzimuth(0);
+                          setCameraElevation(30);
+                          setCameraDistance(238);
+                        }}
+                      >
+                        Reset Camera
+                      </button>
+                      <div className="sync-menu-help">
+                        Mouse orbit and wheel zoom also work.
+                      </div>
+                    </div>
                   )}
                   {menu === "Settings" && (
                     <>
@@ -1707,6 +1758,18 @@ export default function App() {
               resetToken={`${sourcePath ?? drill.sourceName}:${loadVersion}`}
               forceMarcherRedraw={forceMarcherRedraw}
               tubaModel={tubaModel}
+              cameraAzimuth={cameraAzimuth}
+              cameraElevation={cameraElevation}
+              cameraDistance={cameraDistance}
+              onCameraChange={(
+                azimuth: number,
+                elevation: number,
+                distance: number,
+              ) => {
+                setCameraAzimuth(azimuth);
+                setCameraElevation(elevation);
+                setCameraDistance(distance);
+              }}
             />
           ) : (
             <div className="empty">

@@ -580,7 +580,7 @@ canvas {
   top: 5px;
   left: 0;
   width: 12px;
-  height: 2px;
+  height: 1px;
   background: currentColor;
   transform: rotate(45deg);
 }
@@ -969,4 +969,32 @@ canvas {
   .ribbon-range {
     min-width: 80px;
   }
+}
+
+/* Camera menu */
+.camera-menu-controls {
+  width: 248px;
+  padding: 4px 5px 6px;
+}
+.camera-menu-controls label {
+  display: block;
+  padding: 7px 5px 5px;
+  color: #dedee4;
+  font-size: 12px;
+}
+.camera-menu-controls label > span {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+.camera-menu-controls output {
+  color: #8abfe5;
+  font-variant-numeric: tabular-nums;
+}
+.camera-menu-controls input[type="range"] {
+  display: block;
+  width: 100%;
+  accent-color: #0f5787;
+  cursor: pointer;
 }

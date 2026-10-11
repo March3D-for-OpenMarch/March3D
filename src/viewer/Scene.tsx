@@ -6,18 +6,70 @@ import Field from "./Field";
 import Marchers, { type TubaModel } from "./Marchers";
 import type { Drill } from "../lib/dots";
 
-function CameraController({ resetToken }: { resetToken: string }) {
+type CameraChange = (
+  azimuth: number,
+  elevation: number,
+  distance: number,
+) => void;
+
+function CameraController({
+  resetToken,
+  azimuth,
+  elevation,
+  distance,
+  onCameraChange,
+}: {
+  resetToken: string;
+  azimuth: number;
+  elevation: number;
+  distance: number;
+  onCameraChange: CameraChange;
+}) {
   const { camera } = useThree();
   const controls = useRef<any>(null);
+  const onCameraChangeRef = useRef(onCameraChange);
+  const applyingRef = useRef(false);
+  const lastReportedRef = useRef("");
 
   useEffect(() => {
-    const perspective = camera as THREE.PerspectiveCamera;
-    perspective.position.set(0, 215, -315);
-    perspective.lookAt(0, 0, 0);
-    perspective.updateProjectionMatrix();
+    onCameraChangeRef.current = onCameraChange;
+  }, [onCameraChange]);
+
+  useEffect(() => {
+    const radians = THREE.MathUtils.degToRad;
+    const polar = radians(90 - elevation);
+    const theta = radians(azimuth + 180);
+    applyingRef.current = true;
+    camera.position.set(
+      distance * Math.sin(polar) * Math.sin(theta),
+      distance * Math.cos(polar),
+      distance * Math.sin(polar) * Math.cos(theta),
+    );
+    camera.lookAt(0, 0, 0);
     controls.current?.target.set(0, 0, 0);
     controls.current?.update();
-  }, [camera, resetToken]);
+    applyingRef.current = false;
+  }, [camera, resetToken, azimuth, elevation, distance]);
+
+  const handleChange = () => {
+    if (applyingRef.current || !controls.current) return;
+    const offset = camera.position.clone().sub(controls.current.target);
+    const radius = offset.length();
+    if (radius < 0.001) return;
+    const theta = THREE.MathUtils.radToDeg(Math.atan2(offset.x, offset.z));
+    const angle = THREE.MathUtils.radToDeg(
+      Math.asin(THREE.MathUtils.clamp(offset.y / radius, -1, 1)),
+    );
+    const nextAzimuth = Math.round(
+      THREE.MathUtils.euclideanModulo(theta, 360) - 180,
+    );
+    const nextElevation = Math.round(angle);
+    const nextDistance = Math.round(radius);
+    const signature = `${nextAzimuth}:${nextElevation}:${nextDistance}`;
+    if (signature === lastReportedRef.current) return;
+    lastReportedRef.current = signature;
+    onCameraChangeRef.current(nextAzimuth, nextElevation, nextDistance);
+  };
 
   return (
     <OrbitControls
@@ -30,6 +82,7 @@ function CameraController({ resetToken }: { resetToken: string }) {
       maxPolarAngle={Math.PI / 2 - 0.025}
       enableDamping
       dampingFactor={0.08}
+      onEnd={handleChange}
     />
   );
 }
@@ -42,6 +95,10 @@ function Scene({
   resetToken,
   forceMarcherRedraw,
   tubaModel,
+  cameraAzimuth,
+  cameraElevation,
+  cameraDistance,
+  onCameraChange,
 }: {
   drill: Drill;
   labels: boolean;
@@ -50,6 +107,10 @@ function Scene({
   resetToken: string;
   forceMarcherRedraw: boolean;
   tubaModel: TubaModel;
+  cameraAzimuth: number;
+  cameraElevation: number;
+  cameraDistance: number;
+  onCameraChange: CameraChange;
 }) {
   const largeBand = drill.marchers.length > 160;
   return (
@@ -85,7 +146,13 @@ function Scene({
         forceMarcherRedraw={forceMarcherRedraw}
         tubaModel={tubaModel}
       />
-      <CameraController resetToken={resetToken} />
+      <CameraController
+        resetToken={resetToken}
+        azimuth={cameraAzimuth}
+        elevation={cameraElevation}
+        distance={cameraDistance}
+        onCameraChange={onCameraChange}
+      />
     </Canvas>
   );
 }
