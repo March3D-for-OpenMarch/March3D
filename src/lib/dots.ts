@@ -24,6 +24,7 @@ export type Page = {
   displayNumber: number;
   startBeat: number;
   startBeatIndex: number;
+  notes?: string;
 };
 export type Beat = { id: number; duration: number; position: number };
 export type Field = {
@@ -71,12 +72,113 @@ export type PreparedPosition = {
   color: string;
 };
 
+export type March3DInstruction = {
+  pageIndex: number;
+  count: number;
+  target: string;
+  action: "horn" | "facing" | "marching" | "equipment" | "guardMotion";
+  value:
+    | "up"
+    | "down"
+    | "backfield"
+    | "frontfield"
+    | "doubleTime"
+    | "fullTime"
+    | "markTime"
+    | "none"
+    | "has"
+    | "flag"
+    | "rifle"
+    | "saber"
+    | "spinning"
+    | "tossing";
+  durationCounts?: number;
+  shoulder?: "right" | "left";
+};
+
+/** Extract only the dedicated instruction block; never interpret ordinary notes. */
+export function parseMarch3DInstructions(
+  notes: string,
+  pageIndex: number,
+): March3DInstruction[] {
+  const lines = notes
+    .replace(/<br\s*\/?\s*>/gi, "\n")
+    .replace(/<\/p\s*>/gi, "\n")
+    .replace(/<[^>]*>/g, "")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .split(/\r?\n/)
+    .map((line) => line.trim());
+  const result: March3DInstruction[] = [];
+  let inside = false;
+  for (const line of lines) {
+    if (/^March3D Instructions\s*:/i.test(line)) {
+      inside = true;
+      continue;
+    }
+    if (!inside || !line) continue;
+    const match =
+      /^(?:Count\s+(\d+)\s+)?(.+?)\s+(Horns?\s+(?:Up|Down)|Face\s+(?:Backfield|Frontfield)|Double\s+Time|Full\s+Time|Double|Mark\s+Time|No\s+Equipment|Has\s+Equipment|Switch\s+To\s+(?:Riffle|Rifle|Saber|Sabre|Flag)|Spinning|Spining|Tossing)(?:\s+For\s+(\d+)\s+Counts?(?:\s+over\s+(right|left))?)?\s*$/i.exec(
+        line,
+      );
+    if (!match) continue;
+    const count = match[1] ? Number(match[1]) : 1;
+    if (!Number.isSafeInteger(count) || count < 1) continue;
+    const phrase = match[3].toLowerCase().replace(/\s+/g, " ");
+    let action: March3DInstruction["action"];
+    let value: March3DInstruction["value"];
+    if (phrase.startsWith("horn")) {
+      action = "horn";
+      value = phrase.endsWith("down") ? "down" : "up";
+    } else if (phrase.startsWith("face")) {
+      action = "facing";
+      value = phrase.endsWith("backfield") ? "backfield" : "frontfield";
+    } else if (phrase === "double time" || phrase === "double") {
+      action = "marching";
+      value = "doubleTime";
+    } else if (phrase === "full time") {
+      action = "marching";
+      value = "fullTime";
+    } else if (phrase === "mark time") {
+      action = "marching";
+      value = "markTime";
+    } else if (phrase === "no equipment" || phrase === "has equipment") {
+      action = "equipment";
+      value = phrase === "no equipment" ? "none" : "has";
+    } else if (phrase.startsWith("switch to ")) {
+      action = "equipment";
+      value = /rifle|riffle/.test(phrase)
+        ? "rifle"
+        : /saber|sabre/.test(phrase)
+          ? "saber"
+          : "flag";
+    } else {
+      action = "guardMotion";
+      value = phrase === "tossing" ? "tossing" : "spinning";
+    }
+    const durationCounts = match[4] ? Number(match[4]) : 1;
+    if (!Number.isSafeInteger(durationCounts) || durationCounts < 1) continue;
+    const shoulder = match[5]?.toLowerCase() as "right" | "left" | undefined;
+    result.push({
+      pageIndex,
+      count,
+      target: match[2].trim(),
+      action,
+      value,
+      durationCounts,
+      shoulder,
+    });
+  }
+  return result;
+}
+
 export type Drill = {
   audio?: AudioTrack | null;
   audioOffsetSeconds: number;
   lastPageCounts: number;
   marchers: Marcher[];
   pages: Page[];
+  instructions?: March3DInstruction[];
   beats: Beat[];
   positions: Position[];
   field: Field;
@@ -270,7 +372,14 @@ export async function parseDots(
     // Older files may not have workspace settings.
   }
 
+  const notesByPage = new Map(
+    rows(db, `SELECT id, notes FROM pages`).map((r: any) => [
+      +r.id,
+      String(r.notes ?? ""),
+    ]),
+  );
   const pages = pageRows.map((r: any, i: number) => ({
+    notes: notesByPage.get(+r.id) ?? "",
     id: +r.id,
     startBeat: +r.startBeat,
     startBeatIndex: beats.findIndex((b) => b.id === +r.startBeat),
@@ -368,6 +477,9 @@ export async function parseDots(
     lastPageCounts,
     marchers,
     pages,
+    instructions: pages.flatMap((page) =>
+      parseMarch3DInstructions(page.notes ?? "", page.index),
+    ),
     beats,
     positions,
     appearances,

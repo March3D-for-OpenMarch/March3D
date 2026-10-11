@@ -95,7 +95,30 @@ type InstrumentKind =
   | "cymbals"
   | "toms"
   | "flag"
-  | "rifle";
+  | "rifle"
+  | "saber";
+
+// Horn-down rotation in degrees for each instrument.
+// Edit these values to customize how each instrument is held at rest.
+const HORN_DOWN_ANGLES: Record<InstrumentKind, number> = {
+  none: 0,
+  flute: -20,
+  clarinet: -15,
+  sax: -30,
+  trumpet: -90,
+  mello: -60,
+  baritone: -75,
+  trombone: -65,
+  tuba: -30,
+  snare: 0,
+  tenors: 0,
+  bass: 0,
+  cymbals: 0,
+  toms: 0,
+  flag: 0,
+  rifle: 0,
+  saber: 0,
+};
 
 function transformed<G extends THREE.BufferGeometry>(
   geometry: G,
@@ -705,6 +728,16 @@ function instrumentGeometry(
         transformed(new THREE.BoxGeometry(1.65, 1.15, 0.035), T(0.82, 1.45, 0)),
         transformed(new THREE.BoxGeometry(0.18, 0.09, 0.09), T(0, -2.42, 0)),
       ]);
+    case "saber":
+      // Low-poly guard sabre: narrow blade, crossguard and grip.
+      return mergeParts([
+        transformed(new THREE.BoxGeometry(0.055, 2.5, 0.035), T(0, 0.5, 0)),
+        transformed(new THREE.BoxGeometry(0.55, 0.07, 0.1), T(0, -0.8, 0)),
+        transformed(
+          new THREE.CylinderGeometry(0.075, 0.075, 0.5, 8),
+          T(0, -1.08, 0),
+        ),
+      ]);
     case "rifle":
       // Stylized color-guard rifle: stock/body, barrel, and trigger guard.
       return mergeParts([
@@ -729,7 +762,7 @@ function instrumentGeometry(
 
 function isGuardSection(section: string | null | undefined) {
   const name = (section ?? "").trim().toLowerCase();
-  return /(^|\b)(guard|color guard|colour guard|colorguard|flag|flags|rifle|rifles|dancer|dancers)(\b|$)/.test(
+  return /(^|\b)(guard|color guard|colour guard|colorguard|flag|flags|rifle|rifles|saber|sabre|dancer|dancers)(\b|$)/.test(
     name,
   );
 }
@@ -742,6 +775,7 @@ function instrumentForSection(
   // have no equipment; generic Color Guard is treated as the flag line.
   if (/dancer|dance/.test(name)) return "none";
   if (/rifle/.test(name)) return "rifle";
+  if (/saber|sabre/.test(name)) return "saber";
   if (/flag|color guard|colour guard|colorguard|(^|\b)guard(\b|$)/.test(name))
     return "flag";
   if (/flute|piccolo/.test(name)) return "flute";
@@ -837,6 +871,7 @@ export default function Marchers({
   const tomsRef = useRef<THREE.InstancedMesh>(null);
   const flagRef = useRef<THREE.InstancedMesh>(null);
   const rifleRef = useRef<THREE.InstancedMesh>(null);
+  const saberRef = useRef<THREE.InstancedMesh>(null);
   const labelRefs = useRef(new Map<number, THREE.Group>());
   const lastColors = useRef<string[]>([]);
   const lastRenderedTimeRef = useRef(Number.NaN);
@@ -961,6 +996,7 @@ export default function Marchers({
   const tomsGeometry = useMemo(() => instrumentGeometry("toms"), []);
   const flagGeometry = useMemo(() => instrumentGeometry("flag"), []);
   const rifleGeometry = useMemo(() => instrumentGeometry("rifle"), []);
+  const saberGeometry = useMemo(() => instrumentGeometry("saber"), []);
   const bassScaleById = useMemo(() => {
     const basses = drill.marchers
       .filter((m) => instrumentForSection(m.section) === "bass")
@@ -1040,6 +1076,7 @@ export default function Marchers({
       toms: tomsRef.current,
       flag: flagRef.current,
       rifle: rifleRef.current,
+      saber: saberRef.current,
     };
 
     if (
@@ -1155,6 +1192,54 @@ export default function Marchers({
     const alternatingStepSign = writtenCountIsOdd ? 1 : -1;
     const countLockedSwing = activeStepWave * alternatingStepSign;
 
+    // OpenMarch notes on page N describe the move INTO set N.
+    // The playback pageIndex is the set we are moving FROM, so instructions
+    // for the current move belong to pageIndex + 1, not pageIndex.
+    // Rebuild state each frame to preserve correct seeking and rewinding.
+    const instructionPageIndex = hasNext ? pageIndex + 1 : pageIndex;
+    const instructionCount = hasNext ? currentCountIndex + 1 : 1;
+    const activeInstructions = (drill.instructions ?? []).filter(
+      (command) =>
+        command.pageIndex < instructionPageIndex ||
+        (command.pageIndex === instructionPageIndex &&
+          command.count <= instructionCount),
+    );
+    const matchesTarget = (
+      target: string,
+      marcher: Drill["marchers"][number],
+    ) => {
+      const section = marcher.section.toLowerCase();
+      const name = target.toLowerCase().trim();
+      if (name === "all" || name === "everyone") return true;
+      if (name === "guard" || name === "color guard" || name === "colorguard")
+        return isGuardSection(marcher.section);
+      if (name === "drumline" || name === "battery")
+        return isBatterySection(marcher.section);
+      if (name === "woodwinds")
+        return /flute|piccolo|clarinet|sax|oboe|bassoon/.test(section);
+      if (name === "brass")
+        return /trumpet|mello|horn|baritone|euphonium|trombone|tuba|sousaphone/.test(
+          section,
+        );
+      if (name === "tubas") return /tuba|sousaphone/.test(section);
+      if (name === "baritones") return /baritone|euphonium/.test(section);
+      if (name === section || name === section.replace(/s$/, "")) return true;
+      const marcherLabel =
+        `${marcher.drillPrefix}${marcher.drillOrder}`.toLowerCase();
+      return name.split(/\s*,\s*/).some((part) => {
+        const range = /^([a-z]+)(\d+)\s*-\s*(?:[a-z]+)?(\d+)$/.exec(part);
+        if (range)
+          return (
+            marcher.drillPrefix.toLowerCase() === range[1] &&
+            marcher.drillOrder >= Number(range[2]) &&
+            marcher.drillOrder <= Number(range[3])
+          );
+        return (
+          part === marcherLabel || part === (marcher.name ?? "").toLowerCase()
+        );
+      });
+    };
+
     let colorsChanged = false;
     for (let i = 0; i < drill.marchers.length; i++) {
       const a = prepared[pageIndex]?.[i];
@@ -1182,13 +1267,71 @@ export default function Marchers({
 
       const candidate = hasNext ? prepared[nextPageIndex]?.[i] : undefined;
       const b = candidate?.visible ? candidate : a;
-      const x = THREE.MathUtils.lerp(a.x, b.x, moveT);
-      const z = THREE.MathUtils.lerp(a.z, b.z, moveT);
+      let x = THREE.MathUtils.lerp(a.x, b.x, moveT);
+      let z = THREE.MathUtils.lerp(a.z, b.z, moveT);
       const rotation = shortestAngleDegrees(a.rotation, b.rotation, moveT);
       const dx = hasNext ? b.x - a.x : 0;
       const dz = hasNext ? b.z - a.z : 0;
       const movingDistance = Math.hypot(dx, dz);
-      const isMoving = movingDistance > 0.035 && moveT > 0 && moveT < 1;
+      // A marcher on the initial dot is HOLDING, even when a later set has
+      // a different position. Do not pre-turn their hips/feet toward the
+      // upcoming pathway before the first count actually begins.
+      const isMoving =
+        hasNext &&
+        movingDistance > 0.035 &&
+        countPosition > 0.0001 &&
+        countPosition < frameMoveCounts;
+
+      const marcher = drill.marchers[i];
+      const battery = isBatterySection(marcher?.section);
+      const guard = isGuardSection(marcher?.section);
+      const instrument = instrumentForSection(marcher?.section);
+      // Resolve instruction state from drill time, never wall-clock time.
+      // A command remains active until another command of its kind replaces it.
+      let marchingMode: "fullTime" | "doubleTime" | "markTime" = "fullTime";
+      let hasEquipment = true;
+      let guardEquipment: "flag" | "rifle" | "saber" =
+        instrument === "rifle" || instrument === "saber" ? instrument : "flag";
+      let guardMotion: "none" | "spinning" | "tossing" = "none";
+      let guardMotionStartPage = -1;
+      let guardMotionStartCount = 1;
+      let guardMotionDuration = 1;
+      if (marcher) {
+        for (const command of activeInstructions) {
+          if (!matchesTarget(command.target, marcher)) continue;
+          if (command.action === "marching")
+            marchingMode = command.value as typeof marchingMode;
+          if (guard && command.action === "equipment") {
+            if (command.value === "none") hasEquipment = false;
+            else if (command.value === "has") hasEquipment = true;
+            else if (
+              command.value === "flag" ||
+              command.value === "rifle" ||
+              command.value === "saber"
+            ) {
+              guardEquipment = command.value;
+              hasEquipment = true;
+            }
+          }
+          if (guard && command.action === "guardMotion") {
+            guardMotion = command.value as "spinning" | "tossing";
+            guardMotionStartPage = command.pageIndex;
+            guardMotionStartCount = command.count;
+            guardMotionDuration = Math.max(1, command.durationCounts ?? 1);
+          }
+        }
+      }
+      const resolvedMarchingMode: string = marchingMode;
+      const markTime = resolvedMarchingMode === "markTime";
+      // Mark Time animates feet in place; drill dot interpolation remains authoritative.
+      const cadence = resolvedMarchingMode === "doubleTime" ? 2 : 1;
+      // Use the beat clock for every gait, including marking time on a hold.
+      const gaitMoving = isMoving || markTime;
+      const gaitPhase = countFraction * cadence;
+      const gaitWave = Math.sin(Math.PI * (gaitPhase - Math.floor(gaitPhase)));
+      const gaitSign =
+        alternatingStepSign * (Math.floor(gaitPhase) % 2 === 0 ? 1 : -1);
+      const gaitSwing = gaitMoving ? gaitWave * gaitSign : 0;
 
       // OpenMarch movement is count-based. Work out the actual distance covered
       // by THIS marcher on every written count. Instead of scaling an arbitrary
@@ -1203,13 +1346,74 @@ export default function Marchers({
         0,
         Math.sin(THREE.MathUtils.degToRad(68)),
       );
-      const solvedLegAngle = Math.asin(halfStrideRatio);
-      const swing = isMoving ? countLockedSwing : 0;
+      // Preserve a visible step even for very short drill moves. The old
+      // calculated angle could approach zero, making the lower body look frozen.
+      const solvedLegAngle = gaitMoving
+        ? markTime
+          ? THREE.MathUtils.degToRad(24)
+          : Math.max(
+              THREE.MathUtils.degToRad(12),
+              Math.asin(halfStrideRatio / cadence),
+            )
+        : 0;
+      const swing = gaitSwing;
       const oppositeSwing = -swing;
-      const marcher = drill.marchers[i];
-      const battery = isBatterySection(marcher?.section);
-      const guard = isGuardSection(marcher?.section);
-      const instrument = instrumentForSection(marcher?.section);
+      let hornState: "up" | "down" = "up";
+      let facingState: "backfield" | "frontfield" | null = null;
+      // Resolve the turn from the written count, not the render frame. This
+      // also makes rewinding, seeking and multi-count turns deterministic.
+      let turnAngle: number | null = null;
+      if (marcher) {
+        let lastFacingAngle: number | null = null;
+        for (const command of drill.instructions ?? []) {
+          if (!matchesTarget(command.target, marcher)) continue;
+          const commandPage = command.pageIndex;
+          const commandCount = Math.max(1, command.count);
+          const started =
+            commandPage < instructionPageIndex ||
+            (commandPage === instructionPageIndex &&
+              countPosition >= commandCount - 1);
+          if (command.action === "horn") {
+            if (
+              commandPage < instructionPageIndex ||
+              (commandPage === instructionPageIndex &&
+                commandCount <= instructionCount)
+            ) {
+              hornState = command.value as "up" | "down";
+            }
+            continue;
+          }
+          if (command.action !== "facing" || !started) continue;
+          const targetAngle = command.value === "backfield" ? Math.PI : 0;
+          const duration = Math.max(1, Number(command.durationCounts) || 1);
+          const direction = command.shoulder ?? "shortest";
+          const startAngle: number =
+            lastFacingAngle ??
+            THREE.MathUtils.degToRad(
+              -(
+                prepared[Math.max(0, commandPage - 1)]?.[i]?.rotation ??
+                a.rotation
+              ),
+            );
+          let delta = wrapRadians(targetAngle - startAngle);
+          // In Three.js, negative yaw turns toward the performer's right.
+          if (direction === "right" && delta > 0) delta -= Math.PI * 2;
+          if (direction === "left" && delta < 0) delta += Math.PI * 2;
+          const progress =
+            commandPage < instructionPageIndex
+              ? 1
+              : THREE.MathUtils.clamp(
+                  (countPosition - (commandCount - 1)) / duration,
+                  0,
+                  1,
+                );
+          const smooth = progress * progress * (3 - 2 * progress);
+          lastFacingAngle = startAngle + delta * smooth;
+          turnAngle = lastFacingAngle;
+          facingState = command.value as "backfield" | "frontfield";
+        }
+      }
+
       const bassScale =
         instrument === "bass"
           ? (bassScaleById.get(marcher?.id ?? -1) ?? 0.94)
@@ -1227,56 +1431,76 @@ export default function Marchers({
         instrument === "bass"
           ? Math.PI / 2
           : THREE.MathUtils.degToRad(-rotation);
-      quaternion.setFromAxisAngle(axisY, facingRad);
+      const visualFacingAngle = turnAngle ?? facingRad;
+      quaternion.setFromAxisAngle(axisY, visualFacingAngle);
       root.compose(position, quaternion, scale);
 
-      // Compare the pathway with the written facing. Winds/guard keep their
-      // upper body on the written facing while the lower body aims down the
-      // pathway for forward, diagonal, and lateral slide movement. Only motion
-      // that is clearly behind the chest is treated as a true back march.
-      // Battery performers keep their hips square to the written facing and use
-      // a lateral crab-step animation instead of turning their lower body.
+      // Foot direction follows travel when marching forwards or backwards.
+      // Slides of <=90 degrees point toward the 50-yard line; slides beyond
+      // 90 degrees switch the feet to the opposite travel-facing direction.
       let movementDelta = 0;
       let backwardMarch = false;
       let crabAmount = 0;
       let crabDirection = 0;
-      if (isMoving) {
+      // A slide is a movement across the performer's facing, not necessarily
+      // a movement along the field's X axis. Detect it using the relative
+      // travel/facing angle so backfield-facing slides are handled as well.
+      // The 50-yard line is world X=0 (see positionToField above).
+      const towardFiftyAngle =
+        x > 0.01
+          ? Math.PI / 2
+          : x < -0.01
+            ? -Math.PI / 2
+            : dx < 0
+              ? Math.PI / 2
+              : -Math.PI / 2;
+      let footFacingAngle = visualFacingAngle;
+      if (isMoving && !markTime) {
         const travelAngle = Math.atan2(-dx, -dz);
-        movementDelta = wrapRadians(travelAngle - facingRad);
+        movementDelta = wrapRadians(travelAngle - visualFacingAngle);
+        const absoluteDelta = Math.abs(movementDelta);
+        backwardMarch = absoluteDelta > Math.PI / 2;
 
-        // Treat only motion that is clearly behind the performer's facing as
-        // a true back march. A strict 90-degree cutoff made some nearly
-        // sideways wind moves flip between "slide" and "backward" because of
-        // tiny coordinate/rotation differences from OpenMarch. Using the dot
-        // product gives us a stable dead-band: pure side movement always slides,
-        // diagonals keep the legs aimed down the pathway, and only movement
-        // within about 50 degrees of directly backward stays a back march.
-        const forwardComponent = Math.cos(movementDelta);
-        backwardMarch = forwardComponent < -0.65;
-
-        if (battery) {
-          lowerRoot.copy(root);
-          // sin(delta) is 0 forward/back and +/-1 for a pure sideways move.
-          crabAmount = Math.abs(Math.sin(movementDelta));
-          crabDirection = Math.sign(Math.sin(movementDelta)) || 1;
-        } else if (backwardMarch) {
-          // Preserve true backward marching without freezing the lower body on
-          // backward-diagonal / backward-side moves.  Point the hips and legs
-          // toward the *backward-facing equivalent* of the travel path.  For a
-          // straight back march this resolves to the written facing, while a
-          // diagonal back march rotates the lower body toward that diagonal.
-          // The reversed leg swing below still makes the performer march
-          // backward instead of turning around and walking forward.
-          const backwardBodyAngle = wrapRadians(travelAngle + Math.PI);
-          quaternion.setFromAxisAngle(axisY, backwardBodyAngle);
-          lowerRoot.compose(position, quaternion, scale);
+        // Slides are primarily sideways relative to the upper body. Include
+        // lateral field travel as a fallback for formations facing end zones.
+        const slidingRelativeToBody = Math.abs(Math.sin(movementDelta)) >= 0.65;
+        const slidingAcrossField = Math.abs(dx) > Math.abs(dz) * 0.75;
+        const slide = slidingRelativeToBody || slidingAcrossField;
+        if (slide && !battery) {
+          footFacingAngle = towardFiftyAngle;
         } else {
-          quaternion.setFromAxisAngle(axisY, travelAngle);
-          lowerRoot.compose(position, quaternion, scale);
+          footFacingAngle = backwardMarch ? travelAngle + Math.PI : travelAngle;
+        }
+        if (guard) {
+          // Guard footwork follows the actual diagonal pathway, rather than
+          // snapping to the 50-yard-line direction whenever a move is called
+          // a slide. For a 45-degree path this yields a 45-degree hip turn;
+          // a true lateral path can still produce the full 90 degrees.
+          // Choose the forward/backward travel heading closest to the torso,
+          // then limit the relative turn to 90 degrees.
+          const guardTravelFacing = backwardMarch
+            ? travelAngle + Math.PI
+            : travelAngle;
+          const guardFootDelta = wrapRadians(
+            guardTravelFacing - visualFacingAngle,
+          );
+          const maxGuardTurn = Math.PI / 2;
+          footFacingAngle =
+            visualFacingAngle +
+            THREE.MathUtils.clamp(guardFootDelta, -maxGuardTurn, maxGuardTurn);
+        }
+        if (battery) {
+          crabAmount = 1;
+          crabDirection = Math.sign(Math.sin(movementDelta)) || 1;
+          footFacingAngle = visualFacingAngle;
         }
       } else {
-        lowerRoot.copy(root);
+        // At a halt, keep the feet square with the upper body. The 50-yard
+        // line orientation is only used during an active slide, never a hold.
+        footFacingAngle = visualFacingAngle;
       }
+      quaternion.setFromAxisAngle(axisY, footFacingAngle);
+      lowerRoot.compose(position, quaternion, scale);
 
       const backwardSign = backwardMarch ? -1 : 1;
       const normalLegAngle = swing * solvedLegAngle * backwardSign;
@@ -1306,7 +1530,7 @@ export default function Marchers({
       const otherArmAngle = hasWindInstrument
         ? playingArmAngle
         : swing * THREE.MathUtils.degToRad(20) * armScale;
-      const bodyBob = isMoving ? activeStepWave * 0.045 : 0;
+      const bodyBob = gaitMoving ? gaitWave * 0.045 : 0;
 
       // Apply the body pulse after the facing/travel roots are built so every
       // body part remains on the same vertical reference.
@@ -1693,8 +1917,13 @@ export default function Marchers({
       // with the legs.
       for (const mesh of Object.values(instrumentMeshes))
         mesh!.setMatrixAt(i, hiddenMatrix);
+      const shownInstrument = guard ? guardEquipment : instrument;
       const instrumentMesh =
-        instrument === "none" ? null : instrumentMeshes[instrument];
+        (instrument === "none" && !guard) || (guard && !hasEquipment)
+          ? null
+          : shownInstrument === "none"
+            ? null
+            : instrumentMeshes[shownInstrument];
       if (instrumentMesh) {
         if (instrument === "flute") {
           t1.makeTranslation(0.02, 2.62, -0.72);
@@ -1748,12 +1977,15 @@ export default function Marchers({
           t1.makeTranslation(0, 1.88, -0.72);
           t2.identity();
           multiplyParts(result, root, t1, t2);
-        } else if (instrument === "flag") {
+        } else if (shownInstrument === "flag" && guard) {
           // Pole stays vertical and just in front of the guard performer.
           t1.makeTranslation(0, 2.15, -0.54);
           t2.identity();
           multiplyParts(result, root, t1, t2);
-        } else if (instrument === "rifle") {
+        } else if (
+          guard &&
+          (shownInstrument === "rifle" || shownInstrument === "saber")
+        ) {
           // Rifle sits horizontally across the front of the chest.
           t1.makeTranslation(0, 2.3, -0.56);
           t2.makeRotationZ(Math.PI / 2);
@@ -1769,6 +2001,41 @@ export default function Marchers({
           multiplyParts(result, root, t1, t2);
 
           t3.makeScale(bassScale, bassScale, bassScale);
+          result.multiply(t3);
+        }
+        if (guard && guardMotion !== "none") {
+          // Compute a stable absolute written-beat coordinate. Pausing, seeking,
+          // slowing playback and crossing page boundaries never change the pose
+          // at the same drill time.
+          const currentBeat = moveStartBeatIndex + countPosition;
+          const originBeat =
+            (drill.pages[guardMotionStartPage]?.startBeatIndex ?? 0) +
+            guardMotionStartCount -
+            1;
+          const beatsSinceStart = Math.max(0, currentBeat - originBeat);
+          if (guardMotion === "spinning") {
+            // One full equipment rotation per written count.
+            t3.makeRotationZ(beatsSinceStart * Math.PI * 2);
+            result.multiply(t3);
+          } else if (guardMotion === "tossing") {
+            // A finite, repeatable toss with a parabolic rise and full rotation.
+            // After the requested duration, return to the carry position.
+            const progress = THREE.MathUtils.clamp(
+              beatsSinceStart / guardMotionDuration,
+              0,
+              1,
+            );
+            t3.makeTranslation(0, Math.sin(Math.PI * progress) * 2.4, 0);
+            result.multiply(t3);
+            t3.makeRotationZ(progress * Math.PI * 2);
+            result.multiply(t3);
+          }
+        }
+        if (hornState === "down" && !battery && !guard) {
+          // Rotate the instrument around its mount point into a resting pose.
+          t3.makeRotationX(
+            THREE.MathUtils.degToRad(HORN_DOWN_ANGLES[instrument]),
+          );
           result.multiply(t3);
         }
         instrumentMesh!.setMatrixAt(i, result);
@@ -2108,6 +2375,21 @@ export default function Marchers({
           color="#d7c5a3"
           metalness={0.08}
           roughness={0.62}
+          side={THREE.DoubleSide}
+        />
+      </instancedMesh>
+
+      <instancedMesh
+        ref={saberRef}
+        args={[undefined, undefined, INSTANCE_CAPACITY]}
+        castShadow={castMarcherShadows}
+        frustumCulled={false}
+      >
+        <primitive attach="geometry" object={saberGeometry} />
+        <meshStandardMaterial
+          color="#c0c8d2"
+          metalness={0.65}
+          roughness={0.25}
           side={THREE.DoubleSide}
         />
       </instancedMesh>

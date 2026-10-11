@@ -907,8 +907,41 @@ export default function App() {
     setPlaying(lastOmPlayingRef.current);
   }
 
-  function syncWithOpenMarch() {
-    void resyncWithOpenMarch();
+  async function syncWithOpenMarch() {
+    setError("");
+    if (!window.march3d?.isElectron || !window.march3d.probeOpenMarchSync) {
+      setError("OpenMarch synchronization requires the March3D desktop app.");
+      return;
+    }
+
+    try {
+      // Probe the Electron WebSocket server rather than trusting an old UI
+      // connection flag. The server also asks the OpenMarch plugin to send
+      // its current drill, transport state and playback position.
+      const state = await window.march3d.probeOpenMarchSync();
+      syncConnectedRef.current = state.connected;
+      setSyncConnected(state.connected);
+
+      if (!state.connected) {
+        syncEnabledRef.current = false;
+        setSyncEnabled(false);
+        setError(
+          "OpenMarch was not detected. Open OpenMarch and ensure the March3D Sync plugin is installed and running, then click Sync with OpenMarch again.",
+        );
+        return;
+      }
+
+      lastOmPlayingRef.current = !!state.playing;
+      lastOmPositionRef.current = Math.max(0, Number(state.position) || 0);
+      if (state.drillFile?.path) {
+        lastOmDrillPathRef.current = state.drillFile.path;
+      }
+      await resyncWithOpenMarch();
+    } catch (error) {
+      setError(
+        `Could not check OpenMarch connection: ${error instanceof Error ? error.message : "unknown error"}`,
+      );
+    }
   }
 
   function desyncFromOpenMarch() {
@@ -1438,57 +1471,47 @@ export default function App() {
                           className={`sync-menu-dot${syncConnected ? " online" : ""}`}
                         />
                         <span>
-                          {syncConnected
-                            ? syncEnabled
-                              ? playing
-                                ? "Connected · Synced · Live playback"
-                                : "Connected · Synced · Paused"
-                              : "Connected · Desynced"
-                            : "Disconnected"}
+                          {!syncConnected
+                            ? "Disconnected"
+                            : syncEnabled
+                              ? "Synced"
+                              : "Desynced"}
                         </span>
                       </div>
-                      {drill?.sourceName && (
-                        <div
-                          className="sync-menu-drill"
-                          title={drill.sourceName}
-                        >
-                          {drill.sourceName}
-                        </div>
-                      )}
+                      <div
+                        className="sync-menu-drill"
+                        title={drill?.sourceName ?? ""}
+                      >
+                        {drill?.sourceName ??
+                          sourcePath?.split(/[\\/]/).pop() ??
+                          "No .dots file open"}
+                      </div>
                       <div className="menu-divider" />
-                      <button
-                        type="button"
-                        role="menuitem"
-                        disabled={!syncConnected}
-                        onClick={() => {
-                          setOpenMenu(null);
-                          syncWithOpenMarch();
-                        }}
-                      >
-                        Sync with OpenMarch
-                      </button>
-                      <button
-                        type="button"
-                        role="menuitem"
-                        disabled={!syncConnected}
-                        onClick={() => {
-                          setOpenMenu(null);
-                          void resyncWithOpenMarch();
-                        }}
-                      >
-                        Resync with OpenMarch
-                      </button>
-                      <button
-                        type="button"
-                        role="menuitem"
-                        disabled={!syncEnabled}
-                        onClick={() => {
-                          setOpenMenu(null);
-                          void desyncFromOpenMarch();
-                        }}
-                      >
-                        Desync from OpenMarch
-                      </button>
+                      {syncConnected && syncEnabled ? (
+                        <button
+                          type="button"
+                          role="menuitem"
+                          onClick={() => {
+                            setOpenMenu(null);
+                            desyncFromOpenMarch();
+                          }}
+                        >
+                          Desync with OpenMarch
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          role="menuitem"
+                          onClick={() => {
+                            setOpenMenu(null);
+                            syncWithOpenMarch();
+                          }}
+                        >
+                          {syncConnected
+                            ? "Resync with OpenMarch"
+                            : "Sync with OpenMarch"}
+                        </button>
+                      )}
                       <div className="menu-divider" />
                       <button
                         type="button"
@@ -1498,14 +1521,8 @@ export default function App() {
                           void openDots();
                         }}
                       >
-                        {syncEnabled ? "Open Synced Drill" : "Open .dots"}
+                        Open .dots
                       </button>
-                      {!syncConnected && (
-                        <div className="sync-menu-help">
-                          Run the March3D Sync .om.js plugin in OpenMarch to
-                          connect.
-                        </div>
-                      )}
                     </>
                   )}
                   {menu === "View" && (
