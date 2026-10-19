@@ -998,3 +998,30 @@ canvas {
   accent-color: #0f5787;
   cursor: pointer;
 }
+
+/* Camera menu controls */
+.camera-menu-controls {
+  width: 248px;
+  padding: 6px 8px;
+}
+.camera-menu-controls label {
+  display: block;
+  margin: 10px 0;
+  color: #dedee4;
+  font-size: 12px;
+}
+.camera-menu-controls label > span {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+.camera-menu-controls output {
+  color: #8abfe5;
+  font-variant-numeric: tabular-nums;
+}
+.camera-menu-controls input[type="range"] {
+  display: block;
+  width: 100%;
+  accent-color: #0f5787;
+}

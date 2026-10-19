@@ -315,6 +315,9 @@ export default function App() {
     drillRef.current = drill;
   }, [drill]);
   const [openMenu, setOpenMenu] = useState<string | null>(null);
+  const [cameraAzimuth, setCameraAzimuth] = useState(0);
+  const [cameraElevation, setCameraElevation] = useState(30);
+  const [cameraDistance, setCameraDistance] = useState(238);
   const menuRef = useRef<HTMLElement | null>(null);
   const [developerMode, setDeveloperMode] = useState(false);
   const [forceMarcherRedraw, setForceMarcherRedraw] = useState(false);
@@ -912,8 +915,29 @@ export default function App() {
     setPlaying(lastOmPlayingRef.current);
   }
 
-  function syncWithOpenMarch() {
-    void resyncWithOpenMarch();
+  async function syncWithOpenMarch() {
+    if (!window.march3d?.isElectron) {
+      setError("OpenMarch sync requires the March3D desktop app.");
+      return;
+    }
+    try {
+      const status = await window.march3d.probeOpenMarchSync();
+      syncConnectedRef.current = status.connected;
+      setSyncConnected(status.connected);
+      if (!status.connected) {
+        setError(
+          "OpenMarch Sync plugin is not connected. Open OpenMarch and enable March3D Sync, then try again.",
+        );
+        return;
+      }
+      lastOmPositionRef.current = Math.max(0, Number(status.position) || 0);
+      lastOmPlayingRef.current = Boolean(status.playing);
+      await resyncWithOpenMarch();
+    } catch (error) {
+      setError(
+        `Unable to check OpenMarch Sync: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
   }
 
   function desyncFromOpenMarch() {
@@ -1385,7 +1409,7 @@ export default function App() {
       </nav>
       <header>
         <nav className="menu-bar" ref={menuRef} aria-label="Application menu">
-          {["File", "Sync", "View", "Settings"].map((menu) => (
+          {["File", "Sync", "View", "Camera", "Settings"].map((menu) => (
             <div className="menu-group" key={menu}>
               <button
                 type="button"
@@ -1464,10 +1488,9 @@ export default function App() {
                       <button
                         type="button"
                         role="menuitem"
-                        disabled={!syncConnected}
                         onClick={() => {
                           setOpenMenu(null);
-                          syncWithOpenMarch();
+                          void syncWithOpenMarch();
                         }}
                       >
                         Sync with OpenMarch
@@ -1557,6 +1580,64 @@ export default function App() {
                         <span className="menu-shortcut">F11</span>
                       </button>
                     </>
+                  )}
+                  {menu === "Camera" && (
+                    <div className="camera-menu-controls">
+                      <div className="menu-section-label">Camera Controls</div>
+                      <label>
+                        <span>
+                          Side to Side <output>{cameraAzimuth}°</output>
+                        </span>
+                        <input
+                          type="range"
+                          min="-180"
+                          max="180"
+                          value={cameraAzimuth}
+                          onChange={(e) =>
+                            setCameraAzimuth(Number(e.target.value))
+                          }
+                        />
+                      </label>
+                      <label>
+                        <span>
+                          Up and Down <output>{cameraElevation}°</output>
+                        </span>
+                        <input
+                          type="range"
+                          min="2"
+                          max="88"
+                          value={cameraElevation}
+                          onChange={(e) =>
+                            setCameraElevation(Number(e.target.value))
+                          }
+                        />
+                      </label>
+                      <label>
+                        <span>
+                          Zoom{" "}
+                          <output>{Math.round(23800 / cameraDistance)}%</output>
+                        </span>
+                        <input
+                          type="range"
+                          min="18"
+                          max="850"
+                          value={cameraDistance}
+                          onChange={(e) =>
+                            setCameraDistance(Number(e.target.value))
+                          }
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCameraAzimuth(0);
+                          setCameraElevation(30);
+                          setCameraDistance(238);
+                        }}
+                      >
+                        Reset Camera
+                      </button>
+                    </div>
                   )}
                   {menu === "Settings" && (
                     <>
@@ -1716,6 +1797,18 @@ export default function App() {
               forceMarcherRedraw={forceMarcherRedraw}
               tubaModel={tubaModel}
               brassColor={brassColor}
+              cameraAzimuth={cameraAzimuth}
+              cameraElevation={cameraElevation}
+              cameraDistance={cameraDistance}
+              onCameraChange={(
+                azimuth: number,
+                elevation: number,
+                distance: number,
+              ) => {
+                setCameraAzimuth(azimuth);
+                setCameraElevation(elevation);
+                setCameraDistance(distance);
+              }}
             />
           ) : (
             <div className="empty">

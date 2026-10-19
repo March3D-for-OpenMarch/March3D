@@ -6,19 +6,42 @@ import Field from "./Field";
 import Marchers, { type TubaModel, type BrassColor } from "./Marchers";
 import type { Drill } from "../lib/dots";
 
-function CameraController({ resetToken }: { resetToken: string }) {
+type CameraChange = (
+  azimuth: number,
+  elevation: number,
+  distance: number,
+) => void;
+function CameraController({
+  resetToken,
+  azimuth,
+  elevation,
+  distance,
+  onCameraChange,
+}: {
+  resetToken: string;
+  azimuth: number;
+  elevation: number;
+  distance: number;
+  onCameraChange: CameraChange;
+}) {
   const { camera } = useThree();
   const controls = useRef<any>(null);
-
+  const callback = useRef(onCameraChange);
   useEffect(() => {
-    const perspective = camera as THREE.PerspectiveCamera;
-    perspective.position.set(0, 215, -315);
-    perspective.lookAt(0, 0, 0);
-    perspective.updateProjectionMatrix();
+    callback.current = onCameraChange;
+  }, [onCameraChange]);
+  useEffect(() => {
+    const phi = THREE.MathUtils.degToRad(elevation);
+    const theta = THREE.MathUtils.degToRad(azimuth);
+    camera.position.set(
+      distance * Math.cos(phi) * Math.sin(theta),
+      distance * Math.sin(phi),
+      -distance * Math.cos(phi) * Math.cos(theta),
+    );
+    camera.lookAt(0, 0, 0);
     controls.current?.target.set(0, 0, 0);
     controls.current?.update();
-  }, [camera, resetToken]);
-
+  }, [camera, resetToken, azimuth, elevation, distance]);
   return (
     <OrbitControls
       ref={controls}
@@ -30,6 +53,16 @@ function CameraController({ resetToken }: { resetToken: string }) {
       maxPolarAngle={Math.PI / 2 - 0.025}
       enableDamping
       dampingFactor={0.08}
+      onEnd={() => {
+        const offset = camera.position.clone().sub(controls.current.target);
+        const radius = offset.length();
+        if (radius < 0.001) return;
+        const az = THREE.MathUtils.radToDeg(Math.atan2(offset.x, -offset.z));
+        const el = THREE.MathUtils.radToDeg(
+          Math.asin(THREE.MathUtils.clamp(offset.y / radius, -1, 1)),
+        );
+        callback.current(Math.round(az), Math.round(el), Math.round(radius));
+      }}
     />
   );
 }
@@ -43,6 +76,10 @@ function Scene({
   forceMarcherRedraw,
   tubaModel,
   brassColor,
+  cameraAzimuth,
+  cameraElevation,
+  cameraDistance,
+  onCameraChange,
 }: {
   drill: Drill;
   labels: boolean;
@@ -52,6 +89,10 @@ function Scene({
   forceMarcherRedraw: boolean;
   tubaModel: TubaModel;
   brassColor: BrassColor;
+  cameraAzimuth: number;
+  cameraElevation: number;
+  cameraDistance: number;
+  onCameraChange: CameraChange;
 }) {
   const largeBand = drill.marchers.length > 160;
   return (
@@ -88,7 +129,13 @@ function Scene({
         tubaModel={tubaModel}
         brassColor={brassColor}
       />
-      <CameraController resetToken={resetToken} />
+      <CameraController
+        resetToken={resetToken}
+        azimuth={cameraAzimuth}
+        elevation={cameraElevation}
+        distance={cameraDistance}
+        onCameraChange={onCameraChange}
+      />
     </Canvas>
   );
 }

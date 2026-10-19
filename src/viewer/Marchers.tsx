@@ -3,7 +3,7 @@ import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js
 import { Html } from "@react-three/drei";
 import { useFrame } from "@react-three/fiber";
 import { useMemo, useRef, type MutableRefObject } from "react";
-import type { Drill, Position } from "../lib/dots";
+import type { Drill, Position, March3DInstruction } from "../lib/dots";
 
 const PLAYING_LENGTH_FEET = 300;
 const FIELD_WIDTH_FEET = 160;
@@ -448,80 +448,146 @@ function instrumentGeometry(
       ]);
     case "tuba": {
       if (tubaModel === "contrabassBugle") {
-        // Compact marching contrabass bugle: a large front-facing wrap of
-        // tubing with a tall leadpipe and forward bell. Keep it low-poly
-        // because this geometry is instanced for every tuba player.
-        const bodyCurve = new THREE.CatmullRomCurve3(
+        // Shoulder-mounted marching contrabass bugle (contra): concert-tuba
+        // style body laid horizontally across the player's LEFT shoulder.
+        // Marcher local coordinates: -X = left, -Z = forward, +Y = up.
+        // The bell opens forward and slightly upward; the leadpipe ends
+        // near the player's mouth, not at the valve cluster.
+        const parts: THREE.BufferGeometry[] = [];
+        const V = (x: number, y: number, z: number) =>
+          new THREE.Vector3(x, y, z);
+        const tube = (points: THREE.Vector3[], radius: number, steps = 24) => {
+          parts.push(
+            new THREE.TubeGeometry(
+              new THREE.CatmullRomCurve3(points, false, "catmullrom", 0.35),
+              steps,
+              radius,
+              8,
+              false,
+            ),
+          );
+        };
+        const pipe = (a: THREE.Vector3, b: THREE.Vector3, radius: number) => {
+          const delta = b.clone().sub(a);
+          const g = new THREE.CylinderGeometry(
+            radius,
+            radius,
+            delta.length(),
+            10,
+          );
+          g.applyQuaternion(
+            new THREE.Quaternion().setFromUnitVectors(
+              V(0, 1, 0),
+              delta.clone().normalize(),
+            ),
+          );
+          g.translate(
+            ...(a.clone().add(b).multiplyScalar(0.5).toArray() as [
+              number,
+              number,
+              number,
+            ]),
+          );
+          parts.push(g);
+        };
+        // Thick horizontal concert-tuba body: rests on the left shoulder,
+        // with large rounded return bows behind the marcher.
+        tube(
           [
-            new THREE.Vector3(-0.28, 0.5, -0.34),
-            new THREE.Vector3(-0.58, 0.18, -0.48),
-            new THREE.Vector3(-0.48, -0.38, -0.5),
-            new THREE.Vector3(0.28, -0.42, -0.5),
-            new THREE.Vector3(0.55, -0.08, -0.42),
-            new THREE.Vector3(0.42, 0.35, -0.34),
-            new THREE.Vector3(0.08, 0.5, -0.32),
+            V(-0.58, 0.49, -0.92),
+            V(-0.63, 0.48, -0.25),
+            V(-0.65, 0.43, 0.45),
+            V(-0.52, 0.12, 0.66),
+            V(-0.26, 0.06, 0.5),
+            V(-0.22, 0.1, -0.22),
           ],
-          false,
-          "catmullrom",
-          0.5,
+          0.12,
+          40,
         );
-        const body = new THREE.TubeGeometry(bodyCurve, 28, 0.075, 8, false);
-
-        const leadpipeCurve = new THREE.CatmullRomCurve3(
+        tube(
           [
-            new THREE.Vector3(0.08, 0.48, -0.32),
-            new THREE.Vector3(0.18, 0.72, -0.34),
-            new THREE.Vector3(0.34, 0.92, -0.43),
-            new THREE.Vector3(0.38, 1.15, -0.58),
-            new THREE.Vector3(0.38, 1.28, -0.72),
+            V(-0.43, 0.15, -0.6),
+            V(-0.42, 0.08, 0.2),
+            V(-0.34, -0.16, 0.48),
+            V(-0.13, -0.2, 0.34),
+            V(-0.1, -0.12, -0.48),
           ],
-          false,
-          "catmullrom",
-          0.5,
+          0.085,
+          32,
         );
-        const leadpipe = new THREE.TubeGeometry(
-          leadpipeCurve,
-          18,
-          0.08,
-          8,
-          false,
+        tube(
+          [
+            V(-0.07, -0.1, -0.62),
+            V(0.1, -0.22, -0.42),
+            V(0.22, -0.25, 0.1),
+            V(0.34, -0.1, 0.25),
+            V(0.32, 0.08, -0.38),
+          ],
+          0.065,
+          28,
         );
-
-        const bell = transformed(
-          new THREE.CylinderGeometry(0.48, 0.12, 0.68, 18, 1, true),
-          M(T(0.38, 1.28, -1.0), RX(-Math.PI / 2)),
+        // Bell throat and long taper leading to a hollow, open bell.
+        // Its forward vector is (0, .16, -.987): angled slightly upward.
+        const bellAxis = V(0, 0.16, -0.987).normalize();
+        const bellBase = V(-0.6, 0.48, -0.87);
+        const bellLength = 0.94;
+        const profile: THREE.Vector2[] = [
+          new THREE.Vector2(0.12, 0),
+          new THREE.Vector2(0.13, 0.14),
+          new THREE.Vector2(0.17, 0.37),
+          new THREE.Vector2(0.26, 0.6),
+          new THREE.Vector2(0.4, 0.82),
+          new THREE.Vector2(0.47, bellLength),
+        ];
+        const bell = new THREE.LatheGeometry(profile, 24);
+        bell.applyQuaternion(
+          new THREE.Quaternion().setFromUnitVectors(V(0, 1, 0), bellAxis),
         );
-        const bellRim = transformed(
-          new THREE.TorusGeometry(0.48, 0.032, 8, 22),
-          T(0.38, 1.28, -1.34),
+        bell.translate(...(bellBase.toArray() as [number, number, number]));
+        parts.push(bell);
+        const rim = new THREE.TorusGeometry(0.47, 0.027, 8, 24);
+        rim.applyQuaternion(
+          new THREE.Quaternion().setFromUnitVectors(V(0, 0, 1), bellAxis),
         );
-
-        return mergeParts([
-          body,
-          leadpipe,
-          bell,
-          bellRim,
-          transformed(
-            new THREE.BoxGeometry(0.28, 0.3, 0.2),
-            T(-0.02, 0.18, -0.42),
-          ),
-          transformed(
-            new THREE.CylinderGeometry(0.022, 0.022, 0.24, 7),
-            T(-0.1, 0.34, -0.43),
-          ),
-          transformed(
-            new THREE.CylinderGeometry(0.022, 0.022, 0.24, 7),
-            T(-0.02, 0.34, -0.43),
-          ),
-          transformed(
-            new THREE.CylinderGeometry(0.022, 0.022, 0.24, 7),
-            T(0.06, 0.34, -0.43),
-          ),
-          transformed(
-            new THREE.TorusGeometry(0.16, 0.028, 7, 14, Math.PI * 1.35),
-            M(T(-0.02, 0.34, -0.4), RZ(0.35)),
-          ),
-        ]);
+        const bellMouth = bellBase
+          .clone()
+          .addScaledVector(bellAxis, bellLength);
+        rim.translate(...(bellMouth.toArray() as [number, number, number]));
+        parts.push(rim);
+        // Three upright pistons, valve buttons, and connecting U-bows.
+        for (let i = 0; i < 3; i++) {
+          const x = -0.24 + i * 0.17;
+          pipe(V(x, 0.06, -0.55), V(x, 0.4, -0.55), 0.064);
+          pipe(V(x, 0.39, -0.55), V(x, 0.51, -0.55), 0.026);
+          pipe(V(x, 0.51, -0.55), V(x, 0.53, -0.55), 0.054);
+          tube(
+            [
+              V(x, 0.08, -0.54),
+              V(x, -0.14, -0.55),
+              V(x + 0.09, -0.19, -0.54),
+              V(x + 0.14, 0.03, -0.53),
+            ],
+            0.034,
+            12,
+          );
+        }
+        // Mouthpiece and leadpipe curve back from the valves to the
+        // marcher's face: instrument origin is y=2.05, so y=.76 is mouth height.
+        tube(
+          [
+            V(0.12, 0.27, -0.54),
+            V(0.2, 0.45, -0.45),
+            V(0.14, 0.63, -0.3),
+            V(0.05, 0.75, -0.16),
+          ],
+          0.026,
+          22,
+        );
+        pipe(V(0.05, 0.75, -0.16), V(0.03, 0.77, -0.12), 0.044);
+        // Lightweight cross braces give the body a recognizable tuba cage.
+        pipe(V(-0.59, 0.45, -0.36), V(-0.23, 0.13, -0.32), 0.023);
+        pipe(V(-0.45, 0.17, -0.48), V(0.1, 0.08, -0.47), 0.023);
+        return mergeParts(parts);
       }
 
       // Sousaphone body shaped like a diagonal sash around the performer:
@@ -726,6 +792,50 @@ function instrumentGeometry(
     default:
       return new THREE.BoxGeometry(0.01, 0.01, 0.01);
   }
+}
+
+function matchesInstructionTarget(
+  target: string,
+  marcher: Drill["marchers"][number],
+): boolean {
+  const section = (marcher.section ?? "").toLowerCase();
+  const instrument = instrumentForSection(marcher.section);
+  const identifiers = [marcher.name, marcher.drillPrefix, String(marcher.id)]
+    .filter(Boolean)
+    .map((v) => String(v).toLowerCase().trim());
+  return target
+    .toLowerCase()
+    .split(/\s*,\s*/)
+    .some((raw) => {
+      const t = raw.trim();
+      if (["all", "everyone", "marchers"].includes(t)) return true;
+      if (["winds", "wind"].includes(t))
+        return [
+          "flute",
+          "clarinet",
+          "sax",
+          "trumpet",
+          "mello",
+          "baritone",
+          "trombone",
+          "tuba",
+        ].includes(instrument);
+      if (t === "brass")
+        return ["trumpet", "mello", "baritone", "trombone", "tuba"].includes(
+          instrument,
+        );
+      if (t === "woodwinds")
+        return ["flute", "clarinet", "sax"].includes(instrument);
+      if (["guard", "color guard", "colorguard"].includes(t))
+        return isGuardSection(marcher.section);
+      if (["drumline", "battery", "percussion"].includes(t))
+        return ["snare", "tenors", "bass", "cymbals", "toms"].includes(
+          instrument,
+        );
+      if (identifiers.includes(t) || section === t) return true;
+      const singular = t.replace(/s$/, "");
+      return section.includes(singular) || instrument === singular;
+    });
 }
 
 function isGuardSection(section: string | null | undefined) {
@@ -1191,7 +1301,48 @@ export default function Marchers({
       const dx = hasNext ? b.x - a.x : 0;
       const dz = hasNext ? b.z - a.z : 0;
       const movingDistance = Math.hypot(dx, dz);
-      const isMoving = movingDistance > 0.035 && moveT > 0 && moveT < 1;
+      const instructionPage = hasNext ? nextPageIndex : pageIndex;
+      const instructionCount = countPosition + 1;
+      const marcher = drill.marchers[i];
+      let marchingMode: "fullTime" | "doubleTime" | "markTime" = "fullTime";
+      let hornState: "up" | "down" = "up";
+      let guardEquipment: "default" | "none" | "flag" | "rifle" | "saber" =
+        "default";
+      let guardMotion: March3DInstruction | undefined;
+      let facingInstruction: March3DInstruction | undefined;
+      for (const command of drill.instructions ?? []) {
+        if (
+          command.pageIndex > instructionPage ||
+          (command.pageIndex === instructionPage &&
+            command.count > instructionCount)
+        )
+          continue;
+        if (!matchesInstructionTarget(command.target, marcher)) continue;
+        if (command.action === "marching") {
+          if (
+            command.value === "fullTime" ||
+            command.value === "doubleTime" ||
+            command.value === "markTime"
+          )
+            marchingMode = command.value;
+        } else if (command.action === "horn") {
+          hornState = command.value === "down" ? "down" : "up";
+        } else if (command.action === "equipment") {
+          if (command.value === "none") guardEquipment = "none";
+          else if (command.value === "has") guardEquipment = "default";
+          else if (
+            command.value === "flag" ||
+            command.value === "rifle" ||
+            command.value === "saber"
+          )
+            guardEquipment = command.value;
+        } else if (command.action === "guardMotion") guardMotion = command;
+        else if (command.action === "facing") facingInstruction = command;
+      }
+      const markTime = (marchingMode as string) === "markTime";
+      const cadence = (marchingMode as string) === "doubleTime" ? 2 : 1;
+      const isMoving =
+        (markTime || movingDistance > 0.035) && moveT > 0 && moveT < 1;
 
       // OpenMarch movement is count-based. Work out the actual distance covered
       // by THIS marcher on every written count. Instead of scaling an arbitrary
@@ -1206,10 +1357,18 @@ export default function Marchers({
         0,
         Math.sin(THREE.MathUtils.degToRad(68)),
       );
-      const solvedLegAngle = Math.asin(halfStrideRatio);
-      const swing = isMoving ? countLockedSwing : 0;
+      const solvedLegAngle = markTime
+        ? THREE.MathUtils.degToRad(25)
+        : Math.max(THREE.MathUtils.degToRad(12), Math.asin(halfStrideRatio));
+      const beatWave = Math.sin(Math.PI * ((countFraction * cadence) % 1));
+      const stepSign =
+        cadence === 2
+          ? countFraction < 0.5
+            ? alternatingStepSign
+            : -alternatingStepSign
+          : alternatingStepSign;
+      const swing = isMoving ? beatWave * stepSign : 0;
       const oppositeSwing = -swing;
-      const marcher = drill.marchers[i];
       const battery = isBatterySection(marcher?.section);
       const guard = isGuardSection(marcher?.section);
       const instrument = instrumentForSection(marcher?.section);
@@ -1230,7 +1389,24 @@ export default function Marchers({
         instrument === "bass"
           ? Math.PI / 2
           : THREE.MathUtils.degToRad(-rotation);
-      quaternion.setFromAxisAngle(axisY, facingRad);
+      let visualFacing = facingRad;
+      if (facingInstruction) {
+        const targetAngle =
+          facingInstruction.value === "backfield" ? Math.PI : 0;
+        const duration = Math.max(1, facingInstruction.durationCounts ?? 1);
+        const elapsed =
+          facingInstruction.pageIndex < instructionPage
+            ? duration
+            : Math.max(0, countPosition - (facingInstruction.count - 1));
+        const progress = THREE.MathUtils.clamp(elapsed / duration, 0, 1);
+        let delta = wrapRadians(targetAngle - facingRad);
+        if (facingInstruction.shoulder === "right" && delta > 0)
+          delta -= Math.PI * 2;
+        if (facingInstruction.shoulder === "left" && delta < 0)
+          delta += Math.PI * 2;
+        visualFacing = facingRad + delta * progress;
+      }
+      quaternion.setFromAxisAngle(axisY, visualFacing);
       root.compose(position, quaternion, scale);
 
       // Compare the pathway with the written facing. Winds/guard keep their
@@ -1245,7 +1421,7 @@ export default function Marchers({
       let crabDirection = 0;
       if (isMoving) {
         const travelAngle = Math.atan2(-dx, -dz);
-        movementDelta = wrapRadians(travelAngle - facingRad);
+        movementDelta = wrapRadians(travelAngle - visualFacing);
 
         // Treat only motion that is clearly behind the performer's facing as
         // a true back march. A strict 90-degree cutoff made some nearly
@@ -1303,11 +1479,12 @@ export default function Marchers({
             : instrument === "tuba"
               ? THREE.MathUtils.degToRad(-34)
               : THREE.MathUtils.degToRad(-58);
+      const hornAngle = hornState === "down" ? THREE.MathUtils.degToRad(35) : 0;
       const armAngle = hasWindInstrument
-        ? playingArmAngle
+        ? playingArmAngle + hornAngle
         : oppositeSwing * THREE.MathUtils.degToRad(20) * armScale;
       const otherArmAngle = hasWindInstrument
-        ? playingArmAngle
+        ? playingArmAngle + hornAngle
         : swing * THREE.MathUtils.degToRad(20) * armScale;
       const bodyBob = isMoving ? activeStepWave * 0.045 : 0;
 
@@ -1696,38 +1873,46 @@ export default function Marchers({
       // with the legs.
       for (const mesh of Object.values(instrumentMeshes))
         mesh!.setMatrixAt(i, hiddenMatrix);
+      const shownInstrument =
+        guard && guardEquipment !== "default"
+          ? guardEquipment === "none"
+            ? "none"
+            : guardEquipment === "saber"
+              ? "rifle"
+              : guardEquipment
+          : instrument;
       const instrumentMesh =
-        instrument === "none" ? null : instrumentMeshes[instrument];
+        shownInstrument === "none" ? null : instrumentMeshes[shownInstrument];
       if (instrumentMesh) {
-        if (instrument === "flute") {
+        if (shownInstrument === "flute") {
           t1.makeTranslation(0.02, 2.62, -0.72);
           t2.makeRotationZ(-Math.PI / 2);
           multiplyParts(result, root, t1, t2);
-        } else if (instrument === "clarinet") {
+        } else if (shownInstrument === "clarinet") {
           t1.makeTranslation(0, 2.25, -0.58);
           t2.makeRotationX(THREE.MathUtils.degToRad(22));
           multiplyParts(result, root, t1, t2);
-        } else if (instrument === "sax") {
+        } else if (shownInstrument === "sax") {
           t1.makeTranslation(0, 2.12, -0.58);
           t2.makeRotationX(THREE.MathUtils.degToRad(18));
           multiplyParts(result, root, t1, t2);
-        } else if (instrument === "trumpet") {
+        } else if (shownInstrument === "trumpet") {
           t1.makeTranslation(0, 2.66, -0.76);
           t2.makeRotationX(Math.PI / 2);
           multiplyParts(result, root, t1, t2);
-        } else if (instrument === "mello") {
+        } else if (shownInstrument === "mello") {
           t1.makeTranslation(0, 2.62, -0.74);
           t2.makeRotationX(Math.PI / 2);
           multiplyParts(result, root, t1, t2);
-        } else if (instrument === "baritone") {
+        } else if (shownInstrument === "baritone") {
           t1.makeTranslation(0, 2.62, -0.74);
           t2.makeRotationX(Math.PI / 2);
           multiplyParts(result, root, t1, t2);
-        } else if (instrument === "trombone") {
+        } else if (shownInstrument === "trombone") {
           t1.makeTranslation(0, 2.56, -0.78);
           t2.makeRotationX(-Math.PI / 2);
           multiplyParts(result, root, t1, t2);
-        } else if (instrument === "tuba") {
+        } else if (shownInstrument === "tuba") {
           if (tubaModel === "contrabassBugle") {
             t1.makeTranslation(0.0, 2.05, -0.08);
           } else {
@@ -1735,28 +1920,28 @@ export default function Marchers({
           }
           t2.identity();
           multiplyParts(result, root, t1, t2);
-        } else if (instrument === "snare") {
+        } else if (shownInstrument === "snare") {
           t1.makeTranslation(0, 1.88, -0.72);
           t2.identity();
           multiplyParts(result, root, t1, t2);
-        } else if (instrument === "tenors") {
+        } else if (shownInstrument === "tenors") {
           t1.makeTranslation(0, 1.88, -0.78);
           t2.identity();
           multiplyParts(result, root, t1, t2);
-        } else if (instrument === "cymbals") {
+        } else if (shownInstrument === "cymbals") {
           t1.makeTranslation(0, 1.98, -0.98);
           t2.identity();
           multiplyParts(result, root, t1, t2);
-        } else if (instrument === "toms") {
+        } else if (shownInstrument === "toms") {
           t1.makeTranslation(0, 1.88, -0.72);
           t2.identity();
           multiplyParts(result, root, t1, t2);
-        } else if (instrument === "flag") {
+        } else if (shownInstrument === "flag") {
           // Pole stays vertical and just in front of the guard performer.
           t1.makeTranslation(0, 2.15, -0.54);
           t2.identity();
           multiplyParts(result, root, t1, t2);
-        } else if (instrument === "rifle") {
+        } else if (shownInstrument === "rifle") {
           // Rifle sits horizontally across the front of the chest.
           t1.makeTranslation(0, 2.3, -0.56);
           t2.makeRotationZ(Math.PI / 2);
@@ -1773,6 +1958,39 @@ export default function Marchers({
 
           t3.makeScale(bassScale, bassScale, bassScale);
           result.multiply(t3);
+        }
+        if (
+          guard &&
+          guardMotion &&
+          (shownInstrument === "flag" || shownInstrument === "rifle")
+        ) {
+          const elapsed =
+            guardMotion.pageIndex < instructionPage
+              ? countPosition + (instructionPage - guardMotion.pageIndex) * 1000
+              : countPosition - (guardMotion.count - 1);
+          if (guardMotion.value === "spinning") {
+            t4.makeRotationZ(elapsed * Math.PI * 2);
+            result.multiply(t4);
+          } else if (guardMotion.value === "tossing") {
+            const duration = Math.max(1, guardMotion.durationCounts ?? 1);
+            if (elapsed >= 0 && elapsed <= duration) {
+              const fraction = elapsed / duration;
+              t4.makeTranslation(0, Math.sin(Math.PI * fraction) * 1.5, 0);
+              result.multiply(t4);
+              t4.makeRotationZ(fraction * Math.PI * 4);
+              result.multiply(t4);
+            }
+          }
+        }
+        if (
+          hornState === "down" &&
+          !guard &&
+          ["trumpet", "mello", "baritone", "trombone", "tuba"].includes(
+            instrument,
+          )
+        ) {
+          t4.makeRotationX(THREE.MathUtils.degToRad(-35));
+          result.multiply(t4);
         }
         instrumentMesh!.setMatrixAt(i, result);
       }
