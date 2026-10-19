@@ -315,13 +315,15 @@ export default function App() {
     drillRef.current = drill;
   }, [drill]);
   const [openMenu, setOpenMenu] = useState<string | null>(null);
-  const [cameraAzimuth, setCameraAzimuth] = useState(0);
-  const [cameraElevation, setCameraElevation] = useState(30);
-  const [cameraDistance, setCameraDistance] = useState(238);
   const menuRef = useRef<HTMLElement | null>(null);
   const [developerMode, setDeveloperMode] = useState(false);
   const [forceMarcherRedraw, setForceMarcherRedraw] = useState(false);
   const [showDrillInfo, setShowDrillInfo] = useState(false);
+  const [brassColor, setBrassColor] = useState<"gold" | "silver">(() =>
+    localStorage.getItem("march3d-brass-color") === "silver"
+      ? "silver"
+      : "gold",
+  );
   const [tubaModel, setTubaModel] = useState<TubaModel>(() =>
     localStorage.getItem("march3d-tuba-model") === "contrabassBugle"
       ? "contrabassBugle"
@@ -1383,7 +1385,7 @@ export default function App() {
       </nav>
       <header>
         <nav className="menu-bar" ref={menuRef} aria-label="Application menu">
-          {["File", "Sync", "View", "Camera", "Settings"].map((menu) => (
+          {["File", "Sync", "View", "Settings"].map((menu) => (
             <div className="menu-group" key={menu}>
               <button
                 type="button"
@@ -1556,71 +1558,6 @@ export default function App() {
                       </button>
                     </>
                   )}
-                  {menu === "Camera" && (
-                    <div className="camera-menu-controls">
-                      <div className="menu-section-label">Camera Controls</div>
-                      <label>
-                        <span>
-                          Side to Side <output>{cameraAzimuth}°</output>
-                        </span>
-                        <input
-                          type="range"
-                          min="-180"
-                          max="180"
-                          step="1"
-                          value={cameraAzimuth}
-                          onChange={(e) =>
-                            setCameraAzimuth(Number(e.target.value))
-                          }
-                        />
-                      </label>
-                      <label>
-                        <span>
-                          Up and Down <output>{cameraElevation}°</output>
-                        </span>
-                        <input
-                          type="range"
-                          min="2"
-                          max="88"
-                          step="1"
-                          value={cameraElevation}
-                          onChange={(e) =>
-                            setCameraElevation(Number(e.target.value))
-                          }
-                        />
-                      </label>
-                      <label>
-                        <span>
-                          Zoom{" "}
-                          <output>{Math.round(23800 / cameraDistance)}%</output>
-                        </span>
-                        <input
-                          type="range"
-                          min="18"
-                          max="850"
-                          step="1"
-                          value={cameraDistance}
-                          onChange={(e) =>
-                            setCameraDistance(Number(e.target.value))
-                          }
-                        />
-                      </label>
-                      <div className="menu-divider" />
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setCameraAzimuth(0);
-                          setCameraElevation(30);
-                          setCameraDistance(238);
-                        }}
-                      >
-                        Reset Camera
-                      </button>
-                      <div className="sync-menu-help">
-                        Mouse orbit and wheel zoom also work.
-                      </div>
-                    </div>
-                  )}
                   {menu === "Settings" && (
                     <>
                       <div className="menu-section-label">Display</div>
@@ -1656,6 +1593,26 @@ export default function App() {
                       </label>
                       <div className="menu-divider" />
 
+                      <label
+                        className="menu-setting-row"
+                        title="Set the color of brass instruments."
+                      >
+                        <span>Brass Color</span>
+                        <select
+                          aria-label="Brass Color"
+                          value={brassColor}
+                          onChange={(event) => {
+                            const next = event.target.value as
+                              | "gold"
+                              | "silver";
+                            setBrassColor(next);
+                            localStorage.setItem("march3d-brass-color", next);
+                          }}
+                        >
+                          <option value="gold">Gold</option>
+                          <option value="silver">Silver</option>
+                        </select>
+                      </label>
                       <div className="menu-section-label">Developer</div>
 
                       <button
@@ -1758,18 +1715,7 @@ export default function App() {
               resetToken={`${sourcePath ?? drill.sourceName}:${loadVersion}`}
               forceMarcherRedraw={forceMarcherRedraw}
               tubaModel={tubaModel}
-              cameraAzimuth={cameraAzimuth}
-              cameraElevation={cameraElevation}
-              cameraDistance={cameraDistance}
-              onCameraChange={(
-                azimuth: number,
-                elevation: number,
-                distance: number,
-              ) => {
-                setCameraAzimuth(azimuth);
-                setCameraElevation(elevation);
-                setCameraDistance(distance);
-              }}
+              brassColor={brassColor}
             />
           ) : (
             <div className="empty">
