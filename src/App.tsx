@@ -318,6 +318,7 @@ export default function App() {
   const [cameraAzimuth, setCameraAzimuth] = useState(0);
   const [cameraElevation, setCameraElevation] = useState(30);
   const [cameraDistance, setCameraDistance] = useState(238);
+  const [cameraCommandVersion, setCameraCommandVersion] = useState(0);
   const menuRef = useRef<HTMLElement | null>(null);
   const [developerMode, setDeveloperMode] = useState(false);
   const [forceMarcherRedraw, setForceMarcherRedraw] = useState(false);
@@ -769,9 +770,9 @@ export default function App() {
             const embedded =
               await window.march3d!.readEmbeddedAudio(sourcePath);
             if (!embedded?.data?.byteLength) {
-              throw new Error(
-                "No embedded audio track was found in this drill.",
-              );
+              pendingStandalonePlayRef.current = false;
+              setError("");
+              return;
             }
 
             const url = URL.createObjectURL(
@@ -1593,9 +1594,10 @@ export default function App() {
                           min="-180"
                           max="180"
                           value={cameraAzimuth}
-                          onChange={(e) =>
-                            setCameraAzimuth(Number(e.target.value))
-                          }
+                          onChange={(e) => {
+                            setCameraAzimuth(Number(e.target.value));
+                            setCameraCommandVersion((version) => version + 1);
+                          }}
                         />
                       </label>
                       <label>
@@ -1607,9 +1609,10 @@ export default function App() {
                           min="2"
                           max="88"
                           value={cameraElevation}
-                          onChange={(e) =>
-                            setCameraElevation(Number(e.target.value))
-                          }
+                          onChange={(e) => {
+                            setCameraElevation(Number(e.target.value));
+                            setCameraCommandVersion((version) => version + 1);
+                          }}
                         />
                       </label>
                       <label>
@@ -1622,9 +1625,10 @@ export default function App() {
                           min="18"
                           max="850"
                           value={cameraDistance}
-                          onChange={(e) =>
-                            setCameraDistance(Number(e.target.value))
-                          }
+                          onChange={(e) => {
+                            setCameraDistance(Number(e.target.value));
+                            setCameraCommandVersion((version) => version + 1);
+                          }}
                         />
                       </label>
                       <button
@@ -1633,6 +1637,7 @@ export default function App() {
                           setCameraAzimuth(0);
                           setCameraElevation(30);
                           setCameraDistance(238);
+                          setCameraCommandVersion((version) => version + 1);
                         }}
                       >
                         Reset Camera
@@ -1800,6 +1805,7 @@ export default function App() {
               cameraAzimuth={cameraAzimuth}
               cameraElevation={cameraElevation}
               cameraDistance={cameraDistance}
+              cameraCommandVersion={cameraCommandVersion}
               onCameraChange={(
                 azimuth: number,
                 elevation: number,

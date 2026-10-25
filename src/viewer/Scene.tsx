@@ -16,17 +16,20 @@ function CameraController({
   azimuth,
   elevation,
   distance,
+  cameraCommandVersion,
   onCameraChange,
 }: {
   resetToken: string;
   azimuth: number;
   elevation: number;
   distance: number;
+  cameraCommandVersion: number;
   onCameraChange: CameraChange;
 }) {
   const { camera } = useThree();
   const controls = useRef<any>(null);
   const callback = useRef(onCameraChange);
+  const lastCameraCommandVersion = useRef(cameraCommandVersion);
   useEffect(() => {
     callback.current = onCameraChange;
   }, [onCameraChange]);
@@ -41,7 +44,20 @@ function CameraController({
     camera.lookAt(0, 0, 0);
     controls.current?.target.set(0, 0, 0);
     controls.current?.update();
-  }, [camera, resetToken, azimuth, elevation, distance]);
+  }, [camera, resetToken]);
+  useEffect(() => {
+    if (lastCameraCommandVersion.current === cameraCommandVersion) return;
+    lastCameraCommandVersion.current = cameraCommandVersion;
+
+    const phi = THREE.MathUtils.degToRad(elevation);
+    const theta = THREE.MathUtils.degToRad(azimuth);
+    camera.position.set(
+      distance * Math.cos(phi) * Math.sin(theta),
+      distance * Math.sin(phi),
+      -distance * Math.cos(phi) * Math.cos(theta),
+    );
+    controls.current?.update();
+  }, [camera, cameraCommandVersion, azimuth, elevation, distance]);
   return (
     <OrbitControls
       ref={controls}
@@ -61,7 +77,11 @@ function CameraController({
         const el = THREE.MathUtils.radToDeg(
           Math.asin(THREE.MathUtils.clamp(offset.y / radius, -1, 1)),
         );
-        callback.current(Math.round(az), Math.round(el), Math.round(radius));
+        callback.current(
+          Math.round(az),
+          Math.round(el),
+          Math.round(radius),
+        );
       }}
     />
   );
@@ -79,6 +99,7 @@ function Scene({
   cameraAzimuth,
   cameraElevation,
   cameraDistance,
+  cameraCommandVersion,
   onCameraChange,
 }: {
   drill: Drill;
@@ -92,6 +113,7 @@ function Scene({
   cameraAzimuth: number;
   cameraElevation: number;
   cameraDistance: number;
+  cameraCommandVersion: number;
   onCameraChange: CameraChange;
 }) {
   const largeBand = drill.marchers.length > 160;
@@ -134,6 +156,7 @@ function Scene({
         azimuth={cameraAzimuth}
         elevation={cameraElevation}
         distance={cameraDistance}
+        cameraCommandVersion={cameraCommandVersion}
         onCameraChange={onCameraChange}
       />
     </Canvas>
